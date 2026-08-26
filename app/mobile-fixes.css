@@ -45,8 +45,14 @@
     max-width: 100%;
     padding-left: 8px;
     padding-right: 8px;
-    font-size: 10px;
+    font-size: 16px;
     box-sizing: border-box;
+  }
+
+  /* iOS Safari는 16px 미만 입력창에 포커스하면 자동 확대하므로 거래 수정창 전체 입력을 16px로 유지 */
+  .modal input,
+  .modal select {
+    font-size: 16px;
   }
 
   /* 거래 수정창의 날짜/시간만 조금 더 좁게 잡아 iOS 네이티브 입력 폭 충돌 방지 */
