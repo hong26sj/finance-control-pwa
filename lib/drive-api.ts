@@ -1,9 +1,10 @@
-import { FinanceSettings, FixedPlan, Loan, Transaction } from './finance'
+import { FinanceSettings, FixedPlan, Loan, MerchantRule, Transaction } from './finance'
 
 export const DEFAULT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwmsy16Y7h9Js_4kY7qCscrQYuvWCm_DUAwOIO3-k9is1xWnOC72SHkWKPK8jOFc7bPDg/exec'
 
-export type DriveTransaction = Pick<Transaction, 'id' | 'date' | 'card' | 'amount' | 'category' | 'living' | 'fixed' | 'performanceIncluded' | 'cashFlow'>
-export type FinanceSnapshot = { version?: number; privacyVersion?: number; updatedAt?: string; transactions: DriveTransaction[]; loans: Loan[]; fixedPlans: FixedPlan[]; settings: FinanceSettings; cashFlow: number }
+export type DriveTransaction = Pick<Transaction, 'id' | 'date' | 'card' | 'amount' | 'category' | 'living' | 'fixed' | 'performanceIncluded' | 'cashFlow' | 'merchantHash'> & { displayName?: string }
+export type FinanceSnapshot = { version?: number; privacyVersion?: number; updatedAt?: string; transactions: DriveTransaction[]; loans: Loan[]; fixedPlans: FixedPlan[]; settings: FinanceSettings; cashFlow: number; merchantRules?: Record<string, MerchantRule> }
+export type MerchantResolution = { merchant: string; merchantHash: string; rule?: MerchantRule }
 
 async function request(endpoint: string, authToken: string, body: Record<string, unknown>) {
   const target = endpoint.trim() || DEFAULT_APPS_SCRIPT_URL
@@ -24,6 +25,8 @@ export const privateTransactionsForDrive = (items: Transaction[]): DriveTransact
   fixed: item.fixed,
   performanceIncluded: item.performanceIncluded,
   cashFlow: item.cashFlow,
+  merchantHash: item.merchantHash,
+  displayName: item.category === '미분류' ? '' : item.merchant,
 }))
 
 export const restoreDriveTransactions = (items: DriveTransaction[], localItems: Transaction[] = []): Transaction[] => {
@@ -33,7 +36,7 @@ export const restoreDriveTransactions = (items: DriveTransaction[], localItems: 
     return {
       ...item,
       time: local?.time || '',
-      merchant: local?.merchant || '',
+      merchant: item.displayName || (item.category === '미분류' ? local?.merchant || '' : ''),
       source: local?.source || 'Drive 요약',
       memo: local?.memo || '',
       cashAdvance: local?.cashAdvance,
@@ -56,4 +59,15 @@ export async function loadDriveSnapshot(endpoint: string, authToken: string): Pr
 
 export async function saveDriveSnapshot(endpoint: string, authToken: string, snapshot: FinanceSnapshot): Promise<FinanceSnapshot> {
   return (await request(endpoint, authToken, { action: 'snapshot.save', snapshot })).snapshot
+}
+
+export async function resolveMerchantRules(endpoint: string, authToken: string, merchants: string[]): Promise<MerchantResolution[]> {
+  if (!merchants.length) return []
+  const result = await request(endpoint, authToken, { action: 'merchant.resolve', merchants })
+  return Array.isArray(result.items) ? result.items : []
+}
+
+export async function saveMerchantRule(endpoint: string, authToken: string, input: { rawMerchant?: string; merchantHash?: string; displayName: string; category: string }): Promise<{ merchantHash: string; rule: MerchantRule }> {
+  const result = await request(endpoint, authToken, { action: 'merchant.rule.save', ...input })
+  return { merchantHash: result.merchantHash, rule: result.rule }
 }
