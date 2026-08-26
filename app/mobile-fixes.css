@@ -20,14 +20,27 @@
   }
 
   .form-grid {
-    grid-template-columns: 1fr;
-    gap: 0;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
   }
 
-  .form-grid label,
+  .form-grid label {
+    min-width: 0;
+  }
+
   .form-grid input,
   .form-grid select {
-    min-width: 0;
     width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    padding-left: 8px;
+    padding-right: 8px;
+    font-size: 10px;
+  }
+
+  .form-grid input[type='date'],
+  .form-grid input[type='time'] {
+    -webkit-min-logical-width: 0;
+    min-inline-size: 0;
   }
 }
