@@ -6,7 +6,9 @@ export type Transaction = {
   id: string; date: string; time: string; card: string; merchant: string; amount: number
   category: string; living: boolean; fixed: boolean; performanceIncluded: boolean
   cashFlow: boolean; cashAdvance?: boolean; source: string; memo: string
+  merchantHash?: string
 }
+export type MerchantRule = { displayName: string; category: string }
 export type RatePoint = { effectiveDate: string; rate: number }
 export type Loan = {
   id: string; name: string; originalPrincipal: number; balance: number; rate: number
