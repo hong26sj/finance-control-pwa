@@ -1,7 +1,9 @@
 import type { Metadata, Viewport } from 'next'
 import { Manrope, Noto_Sans_KR } from 'next/font/google'
+import { BudgetInteractions } from '@/components/budget-interactions'
 import './globals.css'
 import './mobile-fixes.css'
+import './budget-interactions.css'
 
 const manrope = Manrope({ subsets: ['latin'], variable: '--font-number' })
 const noto = Noto_Sans_KR({ subsets: ['latin'], variable: '--font-body' })
@@ -26,7 +28,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="ko">
-      <body className={`${manrope.variable} ${noto.variable}`}>{children}</body>
+      <body className={`${manrope.variable} ${noto.variable}`}>{children}<BudgetInteractions /></body>
     </html>
   )
 }
