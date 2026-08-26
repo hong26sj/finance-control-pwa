@@ -55,3 +55,5 @@ jobs:
       - name: Redeploy existing web app
         if: steps.auth.outputs.ready == 'true'
         run: clasp deploy --deploymentId "$DEPLOYMENT_ID" --description "GitHub ${GITHUB_SHA}"
+
+      # Secret verification trigger: this workflow intentionally runs on its own file changes.
