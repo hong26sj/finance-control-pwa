@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Manrope, Noto_Sans_KR } from 'next/font/google'
 import './globals.css'
+import './mobile-fixes.css'
 
 const manrope = Manrope({ subsets: ['latin'], variable: '--font-number' })
 const noto = Noto_Sans_KR({ subsets: ['latin'], variable: '--font-body' })
