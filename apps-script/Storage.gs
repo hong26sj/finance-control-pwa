@@ -50,7 +50,7 @@ function sanitizeTransaction_(item) {
 }
 
 function sanitizeSnapshot_(snapshot) {
-  var clean = {
+  return {
     version: Number(snapshot && snapshot.version || 0),
     privacyVersion: 3,
     updatedAt: String(snapshot && snapshot.updatedAt || ''),
@@ -61,7 +61,6 @@ function sanitizeSnapshot_(snapshot) {
     settings: snapshot && snapshot.settings && typeof snapshot.settings === 'object' ? snapshot.settings : defaultSnapshot_().settings,
     cashFlow: Number(snapshot && snapshot.cashFlow || 0)
   };
-  return clean;
 }
 
 function validateSnapshot_(snapshot) {
@@ -116,15 +115,11 @@ function saveMerchantRule_(rawMerchant, merchantHash, displayName, category) {
   if (!cat || cat === '미분류') throw new Error('CATEGORY_REQUIRED');
   var hash = String(merchantHash || '').toLowerCase();
   if (!/^[a-f0-9]{64}$/.test(hash)) hash = merchantFingerprint_(rawMerchant);
-  var lock = LockService.getScriptLock();
-  lock.waitLock(10000);
-  try {
-    var current = readSnapshot_();
-    current.merchantRules = current.merchantRules || {};
-    current.merchantRules[hash] = sanitizeMerchantRule_({ displayName: name, category: cat });
-    var saved = saveSnapshot_(current);
-    return { merchantHash: hash, rule: saved.merchantRules[hash] };
-  } finally { lock.releaseLock(); }
+  var current = readSnapshot_();
+  current.merchantRules = current.merchantRules || {};
+  current.merchantRules[hash] = sanitizeMerchantRule_({ displayName: name, category: cat });
+  var saved = saveSnapshot_(current);
+  return { merchantHash: hash, rule: saved.merchantRules[hash] };
 }
 
 function purgeStoredTransactionDetails() {
