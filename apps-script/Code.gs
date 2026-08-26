@@ -15,6 +15,11 @@ function doPost(e) {
     if (body.action === 'auth.check') return json_({ ok: true, expires_at: auth.expires_at || null });
     if (body.action === 'snapshot.save') return json_({ ok: true, snapshot: saveSnapshot_(body.snapshot || defaultSnapshot_()) });
     if (body.action === 'snapshot.get') return json_({ ok: true, snapshot: readSnapshot_() });
+    if (body.action === 'merchant.resolve') return json_({ ok: true, items: resolveMerchantRules_(body.merchants || []) });
+    if (body.action === 'merchant.rule.save') {
+      var saved = saveMerchantRule_(body.rawMerchant, body.merchantHash, body.displayName, body.category);
+      return json_({ ok: true, merchantHash: saved.merchantHash, rule: saved.rule });
+    }
     throw new Error('UNKNOWN_ACTION');
   } catch (error) { return json_({ ok: false, error: String(error.message || error) }); }
 }
