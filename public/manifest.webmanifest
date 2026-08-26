@@ -1,0 +1,15 @@
+{
+  "name": "Flow — 나의 자금관리",
+  "short_name": "Flow",
+  "description": "생활비, 카드 실적, 현금흐름과 대출을 한 번에 관리합니다.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f4ef",
+  "theme_color": "#101c18",
+  "lang": "ko-KR",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
