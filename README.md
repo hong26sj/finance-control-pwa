@@ -35,13 +35,14 @@ pnpm dev
 ## Apps Script 설치
 
 1. [Google Apps Script](https://script.google.com/)에서 새 프로젝트를 만듭니다.
-2. `apps-script/`의 `Code.gs`, `Security.gs`, `Storage.gs`를 같은 이름으로 복사하고 `appsscript.json` 설정도 반영합니다.
-3. 20자 이상의 임의 토큰을 정한 뒤 편집기에서 `setupFinanceStorage('', '여기에_토큰')`을 한 번 실행합니다. 특정 Drive 폴더를 쓰려면 첫 번째 인수에 폴더 ID를 넣습니다.
-4. `배포` → `새 배포` → `웹 앱`을 선택하고, 실행 사용자는 **나**, 접근 권한은 **모든 사용자**로 배포합니다. 실제 데이터는 토큰 없이는 읽거나 저장할 수 없습니다.
-5. 발급된 `/exec` 주소와 같은 토큰을 PWA의 `연결 설정`에 입력합니다.
-6. 먼저 PC 미리보기에서 `현재 데이터를 Drive에 저장`을 눌러 로컬 데이터를 Drive로 옮긴 뒤, iPhone에서는 `Drive에서 불러오기`를 누릅니다.
+2. `apps-script/`의 `Code.gs`, `Security.gs`, `Storage.gs`, `Setup.gs`를 같은 이름으로 복사합니다. 프로젝트 시간대는 `Asia/Seoul`로 설정합니다.
+3. 프로젝트 설정 → 스크립트 속성에서 `SETUP_ACCESS_TOKEN`에 직접 정한 20자 이상의 토큰을 등록합니다. 특정 Drive 폴더를 쓰려면 `FINANCE_FOLDER_ID`도 등록합니다.
+4. 편집기 상단 함수 목록에서 `setupFlow`를 선택해 한 번 실행하고 Drive 접근 권한을 승인합니다. 실행 후 평문 `SETUP_ACCESS_TOKEN`은 자동 삭제되고 해시만 남습니다.
+5. `배포` → `새 배포` → `웹 앱`을 선택하고, 실행 사용자는 **나**, 접근 권한은 **모든 사용자**로 배포합니다. 실제 데이터는 토큰 없이는 읽거나 저장할 수 없습니다.
+6. 발급된 `/exec` 주소와 같은 토큰을 PWA의 `연결 설정`에 입력합니다.
+7. 먼저 PC 미리보기에서 `현재 데이터를 Drive에 저장`을 눌러 로컬 데이터를 Drive로 옮긴 뒤, iPhone에서는 `Drive에서 불러오기`를 누릅니다.
 
-토큰 원문, Apps Script `/exec` 주소, Drive 파일·폴더 ID, 실제 거래·예산·대출 정보는 GitHub에 커밋하지 않습니다. 토큰 변경이 필요하면 Apps Script 편집기에서 `resetFinanceAccessToken('새로운_20자_이상_토큰')`을 실행합니다.
+토큰 원문, Apps Script `/exec` 주소, Drive 파일·폴더 ID, 실제 거래·예산·대출 정보는 GitHub에 커밋하지 않습니다. 토큰 변경 시 스크립트 속성 `NEW_ACCESS_TOKEN`에 새 토큰을 넣고 `resetFlowToken`을 한 번 실행합니다.
 
 ## iPhone 설치
 
