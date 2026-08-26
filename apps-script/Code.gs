@@ -9,7 +9,10 @@ function doGet(e) {
 function doPost(e) {
   try {
     var body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
-    requireToken_(body.token);
+    if (body.action === 'login') return json_(login_(body.password));
+    var auth = authorizeRequest_(body.auth_token, body.token);
+    if (!auth.ok) return json_(auth);
+    if (body.action === 'auth.check') return json_({ ok: true, expires_at: auth.expires_at || null });
     if (body.action === 'snapshot.save') return json_({ ok: true, snapshot: saveSnapshot_(body.snapshot || defaultSnapshot_()) });
     if (body.action === 'snapshot.get') return json_({ ok: true, snapshot: readSnapshot_() });
     throw new Error('UNKNOWN_ACTION');

@@ -1,6 +1,7 @@
 function defaultSnapshot_() {
   return {
     version: 1,
+    privacyVersion: 2,
     updatedAt: new Date().toISOString(),
     transactions: [],
     loans: [],
@@ -8,6 +9,35 @@ function defaultSnapshot_() {
     settings: { weeklyBase: 0, livingCap: 0, monthlyPaceTarget: 0, salary: 0, cardTarget: 0, categoryBudgets: {} },
     cashFlow: 0
   };
+}
+
+function sanitizeTransaction_(item) {
+  item = item || {};
+  return {
+    id: String(item.id || Utilities.getUuid()),
+    date: String(item.date || ''),
+    card: String(item.card || ''),
+    amount: Number(item.amount || 0),
+    category: String(item.category || '미분류'),
+    living: item.living !== false,
+    fixed: item.fixed === true,
+    performanceIncluded: item.performanceIncluded !== false,
+    cashFlow: item.cashFlow === true
+  };
+}
+
+function sanitizeSnapshot_(snapshot) {
+  var clean = {
+    version: Number(snapshot && snapshot.version || 0),
+    privacyVersion: 2,
+    updatedAt: String(snapshot && snapshot.updatedAt || ''),
+    transactions: Array.isArray(snapshot && snapshot.transactions) ? snapshot.transactions.map(sanitizeTransaction_) : [],
+    loans: Array.isArray(snapshot && snapshot.loans) ? snapshot.loans : [],
+    fixedPlans: Array.isArray(snapshot && snapshot.fixedPlans) ? snapshot.fixedPlans : [],
+    settings: snapshot && snapshot.settings && typeof snapshot.settings === 'object' ? snapshot.settings : defaultSnapshot_().settings,
+    cashFlow: Number(snapshot && snapshot.cashFlow || 0)
+  };
+  return clean;
 }
 
 function validateSnapshot_(snapshot) {
@@ -24,19 +54,26 @@ function dataFile_() {
 
 function readSnapshot_() {
   var text = dataFile_().getBlob().getDataAsString('UTF-8');
-  return text ? JSON.parse(text) : defaultSnapshot_();
+  return text ? sanitizeSnapshot_(JSON.parse(text)) : defaultSnapshot_();
 }
 
 function saveSnapshot_(snapshot) {
-  validateSnapshot_(snapshot);
+  var clean = sanitizeSnapshot_(snapshot);
+  validateSnapshot_(clean);
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    snapshot.version = Number(snapshot.version || 0) + 1;
-    snapshot.updatedAt = new Date().toISOString();
-    dataFile_().setContent(JSON.stringify(snapshot));
-    return snapshot;
+    clean.version = Number(clean.version || 0) + 1;
+    clean.updatedAt = new Date().toISOString();
+    dataFile_().setContent(JSON.stringify(clean));
+    return clean;
   } finally { lock.releaseLock(); }
+}
+
+function purgeStoredTransactionDetails() {
+  var current = readSnapshot_();
+  var clean = saveSnapshot_(current);
+  return { ok: true, transactions: clean.transactions.length, privacyVersion: clean.privacyVersion };
 }
 
 function setupFinanceStorage(folderId, accessToken) {

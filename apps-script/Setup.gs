@@ -7,9 +7,12 @@
 function setupFlow() {
   var properties = PropertiesService.getScriptProperties();
   var accessToken = properties.getProperty('SETUP_ACCESS_TOKEN') || '';
+  var appPassword = properties.getProperty('SETUP_APP_PASSWORD') || '';
   var folderId = properties.getProperty('FINANCE_FOLDER_ID') || '';
   var result = setupFinanceStorage(folderId, accessToken);
+  if (appPassword) setFinancePassword_(appPassword);
   properties.deleteProperty('SETUP_ACCESS_TOKEN');
+  properties.deleteProperty('SETUP_APP_PASSWORD');
   return result;
 }
 
@@ -20,4 +23,20 @@ function resetFlowToken() {
   var result = resetFinanceAccessToken(accessToken);
   properties.deleteProperty('NEW_ACCESS_TOKEN');
   return result;
+}
+
+/** SETUP_APP_PASSWORD에 숫자 6~12자리를 등록한 뒤 한 번 실행합니다. */
+function configureFlowPassword() {
+  var properties = PropertiesService.getScriptProperties();
+  var password = properties.getProperty('SETUP_APP_PASSWORD') || '';
+  var result = setFinancePassword_(password);
+  properties.deleteProperty('SETUP_APP_PASSWORD');
+  revokeAllAuthTokens();
+  return result;
+}
+
+/** 새 PIN 인증을 확인한 뒤 실행하면 이전 20자 토큰 인증을 중단합니다. */
+function disableLegacyFlowToken() {
+  PropertiesService.getScriptProperties().deleteProperty('ACCESS_TOKEN_HASH');
+  return { ok: true };
 }

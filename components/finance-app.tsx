@@ -1,11 +1,11 @@
 'use client'
 
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { BarChart3, CalendarDays, CreditCard, Eye, EyeOff, Gauge, Home, Landmark, Menu, Pencil, Plus, ReceiptText, Search, Settings2, Trash2, Upload, WalletCards, X } from 'lucide-react'
+import { BarChart3, CreditCard, Eye, EyeOff, Gauge, Home, Menu, Pencil, Plus, ReceiptText, Search, Settings2, Trash2, Upload, WalletCards, X } from 'lucide-react'
 import { ServiceWorkerRegister } from './service-worker-register'
 import { CATEGORIES, DEFAULT_LOANS, EMPTY_SETTINGS, estimateMonthlyPayment, FIXED_PLAN, FinanceSettings, FixedPlan, Loan, normalizeMerchant, TabId, Transaction, weekAllowance, won } from '@/lib/finance'
 import { parseCardWorkbook } from '@/lib/import-xlsx'
-import { loadDriveSnapshot, saveDriveSnapshot } from '@/lib/drive-api'
+import { DEFAULT_APPS_SCRIPT_URL, checkDriveAuth, loadDriveSnapshot, loginDrive, privateTransactionsForDrive, restoreDriveTransactions, saveDriveSnapshot } from '@/lib/drive-api'
 
 const nav = [
   ['home', '대시보드', Home], ['transactions', '거래', WalletCards], ['budget', '예산', Gauge],
@@ -14,6 +14,10 @@ const nav = [
 ] as const
 const colors = ['#f1a64a', '#719b82', '#dc7c61', '#6592aa', '#9882ad', '#c7677a', '#89948e']
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || ''
+const todayText = () => {
+  const now = new Date(), pad = (value: number) => String(value).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+}
 const emptyTx = (): Transaction => ({ id: '', date: '2026-07-31', time: '12:00', card: '현대 네이버', merchant: '', amount: 0, category: '미분류', living: true, fixed: false, performanceIncluded: true, cashFlow: false, source: '직접 입력', memo: '' })
 const normalizeLoans = (items: Loan[]) => items.map((item) => ({ ...item, rateHistory: item.rateHistory || [] }))
 const normalizeFixed = (items: FixedPlan[]) => items
@@ -71,10 +75,10 @@ function Dashboard({ rows, cutoff, hidden, loans, settings, setTab }: { rows: Tr
   const adjustable = categoryTotals.filter((item) => ['커피·간식', '외식·여가·개인', '생활용품·잡비'].includes(item.name)).sort((a, b) => b.value - a.value)[0]
   const payoffTarget = [...loans].filter((loan) => loan.balance > 0).sort((a, b) => b.rate - a.rate)[0]
   return <>
-    <PageTitle eyebrow="JULY REPLAY" title={`${Number(cutoff.slice(8, 10))}일 현재 자금 현황`} copy="선택한 날짜까지 발생한 거래만으로 모든 수치를 다시 계산합니다." action={<button className="primary" onClick={() => setTab('transactions')}><Plus />거래 추가</button>} />
+    <PageTitle eyebrow="CURRENT STATUS" title={`${Number(cutoff.slice(5, 7))}월 자금 현황`} copy={`${Number(cutoff.slice(8, 10))}일까지 입력된 거래로 현재 지출 상태를 계산합니다.`} action={<button className="primary" onClick={() => setTab('transactions')}><Plus />거래 추가</button>} />
     <section className="hero-grid">
       <article className="hero dark"><div><span>이번 주 사용 가능액</span><h2><Money value={week.currentAvailable} hidden={hidden} /></h2><p>기본 주간금액 {won(settings.weeklyBase)} + 이전 주 이월</p></div><Ring value={week.currentAvailable ? week.spent / week.currentAvailable * 100 : 0} label="이번 주" color="#e9ad54" /><div className="week-formula"><span>이번 주 사용 <b><Money value={week.spent} hidden={hidden} /></b></span><span>잔여/초과 <b className={week.remaining < 0 ? 'danger' : ''}><Money value={week.remaining} hidden={hidden} /></b></span><span>다음 주 가능 <b><Money value={week.nextAvailable} hidden={hidden} /></b></span></div></article>
-      <article className="hero"><div className="panel-label"><span>7월 생활비</span><b>{settings.livingCap ? Math.round(living / settings.livingCap * 100) : 0}%</b></div><h2><Money value={living} hidden={hidden} /></h2><p>월 한도 {won(settings.livingCap)} · 남은 금액 {won(settings.livingCap - living)}</p><div className="progress"><i style={{ width: `${settings.livingCap ? Math.min(100, living / settings.livingCap * 100) : 0}%` }} /></div>{uncategorized > 0 && <button className="notice" onClick={() => setTab('transactions')}>{uncategorized}건의 카테고리를 확인하세요</button>}</article>
+      <article className="hero"><div className="panel-label"><span>{Number(cutoff.slice(5, 7))}월 생활비</span><b>{settings.livingCap ? Math.round(living / settings.livingCap * 100) : 0}%</b></div><h2><Money value={living} hidden={hidden} /></h2><p>월 한도 {won(settings.livingCap)} · 남은 금액 {won(settings.livingCap - living)}</p><div className="progress"><i style={{ width: `${settings.livingCap ? Math.min(100, living / settings.livingCap * 100) : 0}%` }} /></div>{uncategorized > 0 && <button className="notice" onClick={() => setTab('transactions')}>{uncategorized}건의 카테고리를 확인하세요</button>}</article>
     </section>
     <section className={`focus-alert ${paceGap > 0 ? 'warning' : 'good'}`}><div><span>{paceGap > 0 ? '지출 속도 경고' : '절감 흐름 양호'}</span><h3>{paceGap > 0 ? `현재 속도는 권장선보다 ${won(paceGap)} 빠릅니다` : `현재 속도를 유지하면 ${won(savingsPotential)}을 확보할 수 있습니다`}</h3><p>월말 예상 생활비 {won(projected)} · {adjustable ? `가장 큰 조절 가능 지출은 ${adjustable.name} ${won(adjustable.value)}` : '조절 가능 지출이 아직 없습니다'}</p></div><div><span>현금 확보 다음 목표</span><b>{payoffTarget?.name || '대출 정보 없음'}</b><small>완납 시 월 {won(payoffTarget?.actualPayment || 0)}의 현금흐름 확보</small></div></section>
     <section className="metrics"><article><span>현재까지 거래</span><b>{rows.length}건</b><small>취소건 제외</small></article><article><span>카드 사용 합계</span><b><Money value={rows.filter((r) => r.performanceIncluded).reduce((s, r) => s + r.amount, 0)} hidden={hidden} /></b><small>사용자 제외 거래 미포함</small></article><article><span>고정비 실제</span><b><Money value={rows.filter((r) => r.fixed).reduce((s, r) => s + r.amount, 0)} hidden={hidden} /></b><small>결제일과 무관한 월 누계</small></article></section>
@@ -86,7 +90,7 @@ function Transactions({ rows, hidden, onEdit, onDelete, onAdd, onImport }: { row
   const [query, setQuery] = useState('')
   const pending = rows.filter((row) => row.category === '미분류')
   const filtered = pending.filter((row) => `${row.merchant} ${row.card}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`))
-  return <><PageTitle eyebrow="CLASSIFICATION INBOX" title={`미분류 거래 ${pending.length}건`} copy="분류가 필요한 거래만 표시됩니다. 카테고리를 확정해 저장하면 이 목록에서 바로 사라집니다." action={<div className="title-actions"><label className="secondary upload-button" aria-label="엑셀 내역 업로드"><Upload />엑셀 내역 업로드<input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => { const file = e.target.files?.[0]; if (file) onImport(file); e.target.value = '' }} /></label><button className="primary" onClick={onAdd}><Plus />직접 입력</button></div>} /><article className="panel">{pending.length > 0 ? <><label className="search"><Search /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="가맹점·카드 검색" /></label><div className="tx-table"><div className="tx-header"><span>날짜</span><span>가맹점</span><span>상태</span><span>금액</span><span /></div>{filtered.map((row) => <div className="tx-row" key={row.id}><span>{row.date.slice(5).replace('-', '.')}<small>{row.time}</small></span><span><b>{row.merchant}</b><small>{row.card} · {row.source === '직접 입력' ? '직접 입력' : '업로드'}</small></span><span><em className="pending-tag">분류 필요</em><small>수정 버튼에서 카테고리 선택</small></span><strong><Money value={row.amount} hidden={hidden} /></strong><span className="row-actions"><button onClick={() => onEdit(row)} aria-label="분류"><Pencil /></button><button className="delete" onClick={() => onDelete(row.id)} aria-label="삭제"><Trash2 /></button></span></div>)}</div></> : <div className="empty-state"><div>✓</div><h3>미분류 거래가 없습니다</h3><p>새 거래를 입력하거나 엑셀을 올리면 분류가 필요한 내역만 이곳에 나타납니다.</p></div>}</article></>
+  return <><PageTitle eyebrow="CLASSIFICATION INBOX" title={`미분류 거래 ${pending.length}건`} copy="분류가 필요한 거래만 표시됩니다. 카테고리를 확정해 저장하면 이 목록에서 바로 사라집니다." action={<div className="title-actions"><label className="secondary upload-button" aria-label="엑셀 내역 업로드"><Upload />엑셀 내역 업로드<input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => { const file = e.target.files?.[0]; if (file) onImport(file); e.target.value = '' }} /></label><button className="primary" onClick={onAdd}><Plus />직접 입력</button></div>} /><article className="panel">{pending.length > 0 ? <><label className="search"><Search /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="가맹점·카드 검색" /></label><div className="tx-table"><div className="tx-header"><span>날짜</span><span>거래 정보</span><span>상태</span><span>금액</span><span /></div>{filtered.map((row) => <div className="tx-row" key={row.id}><span>{row.date.slice(5).replace('-', '.')}<small>{row.time || '시각 미저장'}</small></span><span><b>{row.merchant || '가맹점 정보 저장 안 함'}</b><small>{row.card} · {row.source === '직접 입력' ? '직접 입력' : row.source === 'Drive 요약' ? 'Drive 요약' : '업로드'}</small></span><span><em className="pending-tag">분류 필요</em><small>수정 버튼에서 카테고리 선택</small></span><strong><Money value={row.amount} hidden={hidden} /></strong><span className="row-actions"><button onClick={() => onEdit(row)} aria-label="분류"><Pencil /></button><button className="delete" onClick={() => onDelete(row.id)} aria-label="삭제"><Trash2 /></button></span></div>)}</div></> : <div className="empty-state"><div>✓</div><h3>미분류 거래가 없습니다</h3><p>새 거래를 입력하거나 엑셀을 올리면 분류가 필요한 내역만 이곳에 나타납니다.</p></div>}</article></>
 }
 
 function Budget({ rows, hidden, settings }: { rows: Transaction[]; hidden: boolean; settings: FinanceSettings }) {
@@ -127,16 +131,24 @@ function FixedCosts({ rows, hidden, plans, setPlans, loans, setLoans, settings }
   </>
 }
 
-function ConnectionSettings({ endpoint, setEndpoint, token, setToken, onLoad, onSave, status }: { endpoint: string; setEndpoint: (value: string) => void; token: string; setToken: (value: string) => void; onLoad: () => void; onSave: () => void; status: string }) {
-  return <><PageTitle eyebrow="GOOGLE DRIVE" title="기기 간 데이터 연결" copy="Apps Script 웹앱 주소와 기기 토큰을 등록하면 iPhone과 PC에서 같은 Drive 데이터를 사용합니다." /><article className="panel settings-card"><label>Apps Script 웹앱 주소<input type="url" value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="https://script.google.com/macros/s/.../exec" /></label><label>기기 토큰<input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="설치할 때 만든 20자 이상의 토큰" /></label><p>토큰은 이 기기에만 저장되며 GitHub 코드에는 포함되지 않습니다. 카드 전체번호·CVC·계좌 비밀번호는 입력하지 않습니다.</p><div className="settings-actions"><button className="secondary" onClick={onLoad}>Drive에서 불러오기</button><button className="primary" onClick={onSave}>현재 데이터를 Drive에 저장</button></div>{status && <div className="sync-status">{status}</div>}</article></>
+function ConnectionSettings({ endpoint, setEndpoint, authenticated, onLogin, onLogout, onLoad, onSave, status }: { endpoint: string; setEndpoint: (value: string) => void; authenticated: boolean; onLogin: (password: string) => void; onLogout: () => void; onLoad: () => void; onSave: () => void; status: string }) {
+  const [password, setPassword] = useState('')
+  return <><PageTitle eyebrow="GOOGLE DRIVE" title="기기 간 데이터 연결" copy="웹 앱 주소는 앱에 기본 저장되어 Safari 데이터를 지워도 자동 복원됩니다. 인증만 다시 하면 같은 Drive 데이터를 사용할 수 있습니다." /><article className="panel settings-card">
+    <div className={`connection-state ${authenticated ? 'connected' : ''}`}><b>{authenticated ? 'Drive 인증됨' : '인증 필요'}</b><span>{authenticated ? '이 기기는 최대 180일 동안 인증을 유지합니다.' : 'Safari 데이터를 지웠다면 숫자 비밀번호를 다시 입력하세요.'}</span></div>
+    {!authenticated && <><label>숫자 비밀번호<input type="password" inputMode="numeric" pattern="[0-9]*" minLength={6} maxLength={12} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="6~12자리" autoComplete="current-password" /></label><button className="primary auth-button" onClick={() => onLogin(password)}>인증하고 Drive 불러오기</button></>}
+    <details className="endpoint-details"><summary>웹 앱 주소 변경</summary><label>Apps Script 웹 앱 주소<input type="url" value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder={DEFAULT_APPS_SCRIPT_URL} /></label><small>기본 주소가 앱 코드에 포함되어 있어 브라우저 저장소가 초기화되어도 사라지지 않습니다.</small></details>
+    <p>Drive에는 가맹점명·결제시각·메모·업로드 파일명을 저장하지 않습니다. 날짜·금액·카테고리·결제수단과 집계에 필요한 체크값만 저장합니다.</p>
+    {authenticated && <div className="settings-actions"><button className="secondary" onClick={onLoad}>Drive에서 불러오기</button><button className="primary" onClick={onSave}>현재 데이터를 Drive에 저장</button><button className="text-button" onClick={onLogout}>이 기기 인증 해제</button></div>}{status && <div className="sync-status">{status}</div>}
+  </article></>
 }
 
 export function FinanceApp() {
   const [tab, setTab] = useState<TabId>('home'), [menu, setMenu] = useState(false), [hidden, setHidden] = useState(false)
-  const [cutoff, setCutoff] = useState('2026-07-15'), [allRows, setAllRows] = useState<Transaction[]>([]), [loans, setLoans] = useState(DEFAULT_LOANS)
+  const cutoff = todayText()
+  const [allRows, setAllRows] = useState<Transaction[]>([]), [loans, setLoans] = useState(DEFAULT_LOANS)
   const [fixedPlans, setFixedPlans] = useState<FixedPlan[]>(FIXED_PLAN)
   const [settings, setSettings] = useState<FinanceSettings>(EMPTY_SETTINGS)
-  const [endpoint, setEndpoint] = useState(''), [token, setToken] = useState(''), [syncStatus, setSyncStatus] = useState('')
+  const [endpoint, setEndpoint] = useState(DEFAULT_APPS_SCRIPT_URL), [token, setToken] = useState(''), [authenticated, setAuthenticated] = useState(false), [syncStatus, setSyncStatus] = useState('')
   const [editing, setEditing] = useState<Transaction | null>(null), [loaded, setLoaded] = useState(false)
   useEffect(() => {
     const hydrate = async () => {
@@ -149,7 +161,7 @@ export function FinanceApp() {
       setLoans(normalizeLoans(savedLoans ? JSON.parse(savedLoans) : (seedConfig.loans || DEFAULT_LOANS)))
       setFixedPlans(normalizeFixed(savedFixed ? JSON.parse(savedFixed) : (seedConfig.fixedPlans || FIXED_PLAN)))
       setSettings(savedSettings ? JSON.parse(savedSettings) : (seedConfig.settings || EMPTY_SETTINGS))
-      setEndpoint(localStorage.getItem('flow-drive-endpoint') || '')
+      setEndpoint(localStorage.getItem('flow-drive-endpoint') || DEFAULT_APPS_SCRIPT_URL)
       setToken(localStorage.getItem('flow-drive-token') || '')
       setLoaded(true)
     }
@@ -157,14 +169,20 @@ export function FinanceApp() {
   }, [])
   useEffect(() => { if (loaded) localStorage.setItem('flow-preview-transactions', JSON.stringify(allRows)) }, [allRows, loaded])
   useEffect(() => { if (loaded) localStorage.setItem('flow-preview-loans', JSON.stringify(loans)) }, [loans, loaded])
-  useEffect(() => { if (loaded) { localStorage.setItem('flow-preview-fixed', JSON.stringify(fixedPlans)); localStorage.setItem('flow-drive-endpoint', endpoint); localStorage.setItem('flow-drive-token', token) } }, [fixedPlans, endpoint, token, loaded])
+  useEffect(() => { if (loaded) { localStorage.setItem('flow-preview-fixed', JSON.stringify(fixedPlans)); if (endpoint !== DEFAULT_APPS_SCRIPT_URL) localStorage.setItem('flow-drive-endpoint', endpoint); else localStorage.removeItem('flow-drive-endpoint'); if (token) localStorage.setItem('flow-drive-token', token); else localStorage.removeItem('flow-drive-token') } }, [fixedPlans, endpoint, token, loaded])
   useEffect(() => { if (loaded) localStorage.setItem('flow-preview-settings', JSON.stringify(settings)) }, [settings, loaded])
-  const rows = useMemo(() => allRows.filter((row) => row.date <= cutoff), [allRows, cutoff])
+  useEffect(() => {
+    if (!loaded || !token) return
+    checkDriveAuth(endpoint, token).then(() => setAuthenticated(true)).catch(() => { setToken(''); setAuthenticated(false) })
+  }, [loaded, endpoint, token])
+  const rows = useMemo(() => allRows.filter((row) => row.date.startsWith(cutoff.slice(0, 7)) && row.date <= cutoff), [allRows, cutoff])
   const duplicate = (value: Transaction) => allRows.some((row) => row.id !== value.id && row.date === value.date && row.time === value.time && row.card === value.card && normalizeMerchant(row.merchant) === normalizeMerchant(value.merchant) && row.amount === value.amount)
   const save = (value: Transaction) => { setAllRows((current) => current.some((row) => row.id === value.id) ? current.map((row) => row.id === value.id ? value : row) : [...current, value]); return true }
   const deleteRow = (id: string) => { if (confirm('이 거래를 완전히 삭제할까요? 같은 내역을 다시 업로드하면 다시 추가됩니다.')) setAllRows((current) => current.filter((row) => row.id !== id)) }
-  const loadDrive = async () => { try { setSyncStatus('Drive에서 불러오는 중…'); const data = await loadDriveSnapshot(endpoint, token); setAllRows(data.transactions || []); setLoans(normalizeLoans(data.loans || [])); setFixedPlans(normalizeFixed(data.fixedPlans || [])); setSettings(data.settings || EMPTY_SETTINGS); setSyncStatus(`불러오기 완료 · ${new Date().toLocaleTimeString('ko-KR')}`) } catch (error) { setSyncStatus(error instanceof Error ? error.message : '불러오기에 실패했습니다.') } }
-  const saveDrive = async () => { try { setSyncStatus('Drive에 저장하는 중…'); await saveDriveSnapshot(endpoint, token, { transactions: allRows, loans, fixedPlans, settings, cashFlow: 0 }); setSyncStatus(`저장 완료 · ${new Date().toLocaleTimeString('ko-KR')}`) } catch (error) { setSyncStatus(error instanceof Error ? error.message : '저장에 실패했습니다.') } }
+  const loadDrive = async (authToken = token) => { try { if (!authToken) throw new Error('먼저 숫자 비밀번호로 인증하세요.'); setSyncStatus('Drive에서 불러오는 중…'); const data = await loadDriveSnapshot(endpoint, authToken); setAllRows((current) => restoreDriveTransactions(data.transactions || [], current)); setLoans(normalizeLoans(data.loans || [])); setFixedPlans(normalizeFixed(data.fixedPlans || [])); setSettings(data.settings || EMPTY_SETTINGS); setAuthenticated(true); setSyncStatus(`불러오기 완료 · ${new Date().toLocaleTimeString('ko-KR')}`) } catch (error) { setSyncStatus(error instanceof Error ? error.message : '불러오기에 실패했습니다.') } }
+  const login = async (password: string) => { try { if (!/^\d{6,12}$/.test(password)) throw new Error('숫자 비밀번호 6~12자리를 입력하세요.'); setSyncStatus('인증 중…'); const session = await loginDrive(endpoint, password); setToken(session.authToken); setAuthenticated(true); await loadDrive(session.authToken) } catch (error) { setAuthenticated(false); setSyncStatus(error instanceof Error ? error.message : '인증에 실패했습니다.') } }
+  const logout = () => { setToken(''); setAuthenticated(false); setSyncStatus('이 기기의 인증을 해제했습니다.') }
+  const saveDrive = async () => { try { if (!token) throw new Error('먼저 숫자 비밀번호로 인증하세요.'); setSyncStatus('Drive에 저장하는 중…'); await saveDriveSnapshot(endpoint, token, { privacyVersion: 2, transactions: privateTransactionsForDrive(allRows), loans, fixedPlans, settings, cashFlow: 0 }); setSyncStatus(`상세내역 제외 저장 완료 · ${new Date().toLocaleTimeString('ko-KR')}`) } catch (error) { setSyncStatus(error instanceof Error ? error.message : '저장에 실패했습니다.') } }
   const importFile = async (file: File) => {
     try {
       const imported = await parseCardWorkbook(file)
@@ -180,9 +198,9 @@ export function FinanceApp() {
   }
   return <div className="app-shell"><ServiceWorkerRegister />
     {menu && <button className="scrim" onClick={() => setMenu(false)} aria-label="메뉴 닫기" />}
-    <aside className={`sidebar ${menu ? 'open' : ''}`}><div className="brand"><div>F</div><span><b>Flow</b><small>나의 자금관리</small></span></div><nav>{nav.map(([id, label, Icon]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => { setTab(id); setMenu(false) }}><Icon /><span>{label}</span></button>)}</nav><div className="sync"><span>데이터 저장 구조</span><b>{endpoint ? 'Google Drive 연결됨' : 'Google Drive 연결 필요'}</b><small>{endpoint ? '설정에서 불러오기·저장' : '연결 설정에서 주소 등록'}</small></div></aside>
-    <main><header><button className="icon-btn mobile" onClick={() => setMenu(true)}><Menu /></button><label className="cutoff"><CalendarDays /><span>테스트 날짜</span><input type="date" min="2026-07-01" max="2026-07-31" value={cutoff} onChange={(e) => setCutoff(e.target.value)} /></label><span className="test-badge">7월 재현 테스트</span><button className="icon-btn" onClick={() => setHidden(!hidden)} aria-label="금액 가리기">{hidden ? <EyeOff /> : <Eye />}</button></header>
-      <div className="content">{!loaded ? <div className="loading">데이터를 불러오는 중…</div> : tab === 'home' ? <Dashboard rows={rows} cutoff={cutoff} hidden={hidden} loans={loans} settings={settings} setTab={setTab} /> : tab === 'transactions' ? <Transactions rows={rows} hidden={hidden} onEdit={setEditing} onDelete={deleteRow} onAdd={() => setEditing(emptyTx())} onImport={importFile} /> : tab === 'budget' ? <Budget rows={rows} hidden={hidden} settings={settings} /> : tab === 'cards' ? <Cards rows={rows} hidden={hidden} settings={settings} /> : tab === 'fixed' ? <FixedCosts rows={rows} hidden={hidden} plans={fixedPlans} setPlans={setFixedPlans} loans={loans} setLoans={setLoans} settings={settings} /> : <ConnectionSettings endpoint={endpoint} setEndpoint={setEndpoint} token={token} setToken={setToken} onLoad={loadDrive} onSave={saveDrive} status={syncStatus} />}</div>
+    <aside className={`sidebar ${menu ? 'open' : ''}`}><div className="brand"><div>F</div><span><b>Flow</b><small>나의 자금관리</small></span></div><nav>{nav.map(([id, label, Icon]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => { setTab(id); setMenu(false) }}><Icon /><span>{label}</span></button>)}</nav><div className="sync"><span>데이터 저장 구조</span><b>{authenticated ? 'Google Drive 인증됨' : 'Google Drive 인증 필요'}</b><small>{authenticated ? '상세 가맹점 정보는 기기에만 보관' : '설정에서 숫자 비밀번호 입력'}</small></div></aside>
+    <main><header><button className="icon-btn mobile" onClick={() => setMenu(true)}><Menu /></button><span className="current-date">{new Date(`${cutoff}T12:00:00`).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })} 현재</span><button className="icon-btn header-eye" onClick={() => setHidden(!hidden)} aria-label="금액 가리기">{hidden ? <EyeOff /> : <Eye />}</button></header>
+      <div className="content">{!loaded ? <div className="loading">데이터를 불러오는 중…</div> : tab === 'home' ? <Dashboard rows={rows} cutoff={cutoff} hidden={hidden} loans={loans} settings={settings} setTab={setTab} /> : tab === 'transactions' ? <Transactions rows={allRows} hidden={hidden} onEdit={setEditing} onDelete={deleteRow} onAdd={() => setEditing({ ...emptyTx(), date: cutoff })} onImport={importFile} /> : tab === 'budget' ? <Budget rows={rows} hidden={hidden} settings={settings} /> : tab === 'cards' ? <Cards rows={rows} hidden={hidden} settings={settings} /> : tab === 'fixed' ? <FixedCosts rows={rows} hidden={hidden} plans={fixedPlans} setPlans={setFixedPlans} loans={loans} setLoans={setLoans} settings={settings} /> : <ConnectionSettings endpoint={endpoint} setEndpoint={setEndpoint} authenticated={authenticated} onLogin={login} onLogout={logout} onLoad={() => loadDrive()} onSave={saveDrive} status={syncStatus} />}</div>
     </main><nav className="bottom-nav">{nav.slice(0, 5).map(([id, label, Icon]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}><Icon /><span>{label}</span></button>)}</nav>
     {editing && <TransactionModal value={editing} onClose={() => setEditing(null)} onSave={save} duplicate={duplicate} />}
   </div>
