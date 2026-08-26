@@ -2,10 +2,32 @@ var AUTH_TOKEN_TTL_SECONDS_ = 180 * 24 * 60 * 60;
 var LOGIN_MAX_FAILURES_ = 5;
 var LOGIN_LOCK_SECONDS_ = 10 * 60;
 
+function bytesToHex_(bytes) {
+  return bytes.map(function (byte) { var n = byte < 0 ? byte + 256 : byte; return ('0' + n.toString(16)).slice(-2); }).join('');
+}
+
 function sha256Hex_(value) {
-  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, value, Utilities.Charset.UTF_8)
-    .map(function (byte) { var n = byte < 0 ? byte + 256 : byte; return ('0' + n.toString(16)).slice(-2); })
-    .join('');
+  return bytesToHex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, value, Utilities.Charset.UTF_8));
+}
+
+function merchantHmacSecret_() {
+  var properties = PropertiesService.getScriptProperties();
+  var secret = properties.getProperty('MERCHANT_HMAC_SECRET');
+  if (!secret) {
+    secret = Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, Utilities.getUuid() + '|' + Date.now() + '|' + Math.random())).replace(/=+$/g, '');
+    properties.setProperty('MERCHANT_HMAC_SECRET', secret);
+  }
+  return secret;
+}
+
+function normalizeMerchantForFingerprint_(value) {
+  return String(value || '').toLowerCase().replace(/[\s\-_()]/g, '');
+}
+
+function merchantFingerprint_(merchant) {
+  var normalized = normalizeMerchantForFingerprint_(merchant);
+  if (!normalized) throw new Error('MERCHANT_REQUIRED');
+  return bytesToHex_(Utilities.computeHmacSha256Signature(normalized, merchantHmacSecret_(), Utilities.Charset.UTF_8));
 }
 
 function login_(password) {
