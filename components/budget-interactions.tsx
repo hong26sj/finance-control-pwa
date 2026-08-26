@@ -8,6 +8,11 @@ type BudgetSelection = {
   rows: Transaction[]
 }
 
+type DraftRow = {
+  merchant: string
+  category: string
+}
+
 const todayText = () => {
   const now = new Date()
   const pad = (value: number) => String(value).padStart(2, '0')
@@ -25,6 +30,7 @@ function readTransactions() {
 export function BudgetInteractions() {
   const [selection, setSelection] = useState<BudgetSelection | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [draft, setDraft] = useState<DraftRow | null>(null)
 
   const openCategory = (category: string) => {
     const cutoff = todayText()
@@ -33,16 +39,44 @@ export function BudgetInteractions() {
       .filter((row) => row.living && row.category === category && row.date.startsWith(month) && row.date <= cutoff)
       .sort((a, b) => `${b.date}${b.time || ''}`.localeCompare(`${a.date}${a.time || ''}`))
     setEditingId(null)
+    setDraft(null)
     setSelection({ category, rows })
   }
 
-  const changeCategory = (rowId: string, category: string) => {
-    const allRows = readTransactions()
-    const nextRows = allRows.map((row) => row.id === rowId ? { ...row, category } : row)
-    localStorage.setItem('flow-preview-transactions', JSON.stringify(nextRows))
+  const returnToCategory = (category = selection?.category || '') => {
     sessionStorage.setItem('flow-return-budget', '1')
-    sessionStorage.setItem('flow-reopen-budget-category', selection?.category || '')
+    sessionStorage.setItem('flow-reopen-budget-category', category)
     window.location.reload()
+  }
+
+  const startEditing = (row: Transaction) => {
+    if (editingId === row.id) {
+      setEditingId(null)
+      setDraft(null)
+      return
+    }
+    setEditingId(row.id)
+    setDraft({ merchant: row.merchant || '', category: row.category })
+  }
+
+  const saveRow = (rowId: string) => {
+    if (!draft) return
+    const merchant = draft.merchant.trim()
+    if (!merchant) {
+      alert('내역 이름을 입력하세요.')
+      return
+    }
+    const allRows = readTransactions()
+    const nextRows = allRows.map((row) => row.id === rowId ? { ...row, merchant, category: draft.category } : row)
+    localStorage.setItem('flow-preview-transactions', JSON.stringify(nextRows))
+    returnToCategory()
+  }
+
+  const deleteRow = (row: Transaction) => {
+    if (!confirm(`'${row.merchant || '이 거래'}' 내역을 삭제할까요?`)) return
+    const nextRows = readTransactions().filter((item) => item.id !== row.id)
+    localStorage.setItem('flow-preview-transactions', JSON.stringify(nextRows))
+    returnToCategory()
   }
 
   useEffect(() => {
@@ -96,15 +130,24 @@ export function BudgetInteractions() {
       </header>
       <div className="budget-detail-list">
         {selection.rows.length === 0 ? <p className="budget-detail-empty">이 카테고리에 포함된 거래가 없습니다.</p> : selection.rows.map((row) => <div className="budget-detail-item" key={row.id}>
-          <button type="button" className="budget-detail-row" onClick={() => setEditingId(editingId === row.id ? null : row.id)}>
+          <button type="button" className="budget-detail-row" onClick={() => startEditing(row)}>
             <span><b>{row.merchant || '가맹점 정보 없음'}</b><small>{row.date.slice(5).replace('-', '.')} · {row.card}</small></span>
             <strong>{won(row.amount)}</strong>
           </button>
-          {editingId === row.id && <label className="budget-category-editor">카테고리 변경
-            <select value={row.category} onChange={(event) => changeCategory(row.id, event.target.value)}>
-              {CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
-            </select>
-          </label>}
+          {editingId === row.id && draft && <div className="budget-row-editor">
+            <label>내역 이름
+              <input value={draft.merchant} onChange={(event) => setDraft({ ...draft, merchant: event.target.value })} placeholder="가맹점명 또는 내역 이름" />
+            </label>
+            <label>카테고리
+              <select value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })}>
+                {CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
+              </select>
+            </label>
+            <div className="budget-row-actions">
+              <button type="button" className="budget-delete-button" onClick={() => deleteRow(row)}>삭제</button>
+              <button type="button" className="budget-save-button" onClick={() => saveRow(row.id)}>변경 저장</button>
+            </div>
+          </div>}
         </div>)}
       </div>
     </section>
