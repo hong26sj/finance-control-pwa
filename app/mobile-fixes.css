@@ -46,11 +46,28 @@
     padding-left: 8px;
     padding-right: 8px;
     font-size: 10px;
+    box-sizing: border-box;
   }
 
-  .form-grid input[type='date'],
-  .form-grid input[type='time'] {
+  /* 거래 수정창의 날짜/시간만 조금 더 좁게 잡아 iOS 네이티브 입력 폭 충돌 방지 */
+  .modal-head + .form-grid {
+    grid-template-columns: minmax(0, 48%) minmax(0, 52%);
+    gap: 6px;
+  }
+
+  .modal-head + .form-grid label {
+    overflow: hidden;
+  }
+
+  .modal-head + .form-grid input[type='date'],
+  .modal-head + .form-grid input[type='time'] {
+    -webkit-appearance: none;
+    appearance: none;
     -webkit-min-logical-width: 0;
     min-inline-size: 0;
+    inline-size: 100%;
+    max-inline-size: 100%;
+    padding-left: 5px;
+    padding-right: 5px;
   }
 }
