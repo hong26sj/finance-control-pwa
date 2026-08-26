@@ -7,3 +7,5 @@ out
 *.tsbuildinfo
 .DS_Store
 public/private-preview-*.json
+.clasprc.json
+.clasprc-*.json
