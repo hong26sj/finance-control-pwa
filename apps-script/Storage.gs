@@ -102,34 +102,38 @@ function writeMerchantVault_(vault) {
 }
 
 function merchantRuleForHash_(vault, hash) {
-  var categories = {};
-  var selectedCategory = '';
-  var selectedUpdatedAt = '';
+  var stats = {};
   Object.keys(vault.transactions || {}).forEach(function (id) {
     var item = vault.transactions[id] || {};
     if (String(item.merchantHash || '') !== hash) return;
     var category = String(item.category || '');
     if (!category || category === '미분류') return;
-    categories[category] = true;
 
+    if (!stats[category]) stats[category] = { count: 0, latestUpdatedAt: '' };
+    stats[category].count += 1;
     var updatedAt = String(item.updatedAt || '');
-    if (!selectedCategory) {
+    if (updatedAt && (!stats[category].latestUpdatedAt || updatedAt >= stats[category].latestUpdatedAt)) {
+      stats[category].latestUpdatedAt = updatedAt;
+    }
+  });
+
+  var list = Object.keys(stats).sort();
+  if (!list.length) return null;
+
+  var selectedCategory = list[0];
+  list.forEach(function (category) {
+    var current = stats[category];
+    var selected = stats[selectedCategory];
+    if (current.count > selected.count) {
       selectedCategory = category;
-      selectedUpdatedAt = updatedAt;
       return;
     }
-    if (updatedAt) {
-      if (!selectedUpdatedAt || updatedAt >= selectedUpdatedAt) {
-        selectedCategory = category;
-        selectedUpdatedAt = updatedAt;
-      }
-    } else if (!selectedUpdatedAt) {
+    if (current.count === selected.count && current.latestUpdatedAt > selected.latestUpdatedAt) {
       selectedCategory = category;
     }
   });
-  var list = Object.keys(categories).sort();
-  if (!list.length) return null;
-  return { category: selectedCategory || list[0], ambiguous: list.length > 1, categories: list };
+
+  return { category: selectedCategory, ambiguous: list.length > 1, categories: list };
 }
 
 function saveTransactionMerchants_(items) {
