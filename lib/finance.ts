@@ -7,6 +7,7 @@ export type Transaction = {
   category: string; living: boolean; fixed: boolean; performanceIncluded: boolean
   cashFlow: boolean; cashAdvance?: boolean; source: string; memo: string
   merchantHash?: string; merchantCategoryAmbiguous?: boolean
+  merchantCategoryAuto?: boolean; merchantCategoryConfirmed?: boolean
 }
 export type MerchantRule = { category: string; ambiguous: boolean; categories: string[] }
 export type RatePoint = { effectiveDate: string; rate: number }
