@@ -74,7 +74,16 @@ input[data-flow-money-input='1']{
 .bottom-nav button,.bottom-nav>button span{font-family:var(--flow-font)!important;font-size:10px!important;font-weight:660!important;line-height:1.15!important}
 
 @media(max-width:700px){
-  .current-date{font-size:12px!important}
+  :root{--flow-mobile-header:calc(54px + env(safe-area-inset-top))}
+  .app-shell>main>header{
+    height:var(--flow-mobile-header)!important;
+    min-height:var(--flow-mobile-header)!important;
+    padding:env(safe-area-inset-top) calc(12px + env(safe-area-inset-right)) 0 calc(12px + env(safe-area-inset-left))!important;
+    align-items:center!important;
+  }
+  .current-date{font-size:12px!important;min-width:0!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+  .money-calendar-page{top:var(--flow-mobile-header)!important;min-height:calc(100vh - var(--flow-mobile-header))!important}
+
   .page-title h1{font-size:19px!important}
   .page-title p{font-size:10.5px!important}
   .fixed-section.fixed-collapsible>.section-head h3{font-size:15px!important}
