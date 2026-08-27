@@ -102,15 +102,33 @@ function writeMerchantVault_(vault) {
 
 function merchantRuleForHash_(vault, hash) {
   var categories = {};
+  var selectedCategory = '';
+  var selectedUpdatedAt = '';
   Object.keys(vault.transactions || {}).forEach(function (id) {
     var item = vault.transactions[id] || {};
     if (String(item.merchantHash || '') !== hash) return;
     var category = String(item.category || '');
-    if (category && category !== '미분류') categories[category] = true;
+    if (!category || category === '미분류') return;
+    categories[category] = true;
+
+    var updatedAt = String(item.updatedAt || '');
+    if (!selectedCategory) {
+      selectedCategory = category;
+      selectedUpdatedAt = updatedAt;
+      return;
+    }
+    if (updatedAt) {
+      if (!selectedUpdatedAt || updatedAt >= selectedUpdatedAt) {
+        selectedCategory = category;
+        selectedUpdatedAt = updatedAt;
+      }
+    } else if (!selectedUpdatedAt) {
+      selectedCategory = category;
+    }
   });
   var list = Object.keys(categories).sort();
   if (!list.length) return null;
-  return { category: list.length === 1 ? list[0] : '', ambiguous: list.length > 1, categories: list };
+  return { category: selectedCategory || list[0], ambiguous: list.length > 1, categories: list };
 }
 
 function saveTransactionMerchants_(items) {
@@ -132,7 +150,8 @@ function saveTransactionMerchants_(items) {
       vault.transactions[id] = {
         merchant: merchant,
         merchantHash: hash,
-        category: String(item.category || previous.category || '미분류').slice(0, 80)
+        category: String(item.category || previous.category || '미분류').slice(0, 80),
+        updatedAt: new Date().toISOString()
       };
       saved += 1;
     });
@@ -188,7 +207,7 @@ function saveMerchantRule_(transactionId, rawMerchant, merchantHash, category) {
       if (!merchant) throw new Error('MERCHANT_REQUIRED');
       hash = merchantFingerprint_(merchant);
     }
-    vault.transactions[id] = { merchant: merchant, merchantHash: hash, category: cat };
+    vault.transactions[id] = { merchant: merchant, merchantHash: hash, category: cat, updatedAt: new Date().toISOString() };
     writeMerchantVault_(vault);
     return { merchantHash: hash, rule: merchantRuleForHash_(vault, hash) };
   } finally { lock.releaseLock(); }
