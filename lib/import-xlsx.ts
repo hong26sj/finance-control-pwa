@@ -1,11 +1,12 @@
 'use client'
 
 import { readSheet } from 'read-excel-file/browser'
-import { Transaction } from './finance'
+import { normalizeMerchant, Transaction } from './finance'
 import { DEFAULT_APPS_SCRIPT_URL, resolveMerchantRules, saveTransactionMerchants } from './drive-api'
 
 type Cell = string | number | boolean | Date | null
 const PENDING_MERCHANTS_KEY = 'flow-pending-merchants'
+const TRANSACTIONS_KEY = 'flow-preview-transactions'
 const dateText = (value: Cell) => value instanceof Date ? value.toISOString().slice(0, 10) : String(value ?? '').slice(0, 10).replaceAll('.', '-')
 const timeText = (value: Cell) => {
   if (value instanceof Date) return value.toTimeString().slice(0, 5)
@@ -44,6 +45,37 @@ function rememberPendingMerchants(rows: Transaction[]) {
     localStorage.setItem(PENDING_MERCHANTS_KEY, JSON.stringify(saved))
   } catch {
     // Transaction import should still succeed if the local backup cannot be updated.
+  }
+}
+
+function alignKnownDuplicates(rows: Transaction[]) {
+  if (typeof window === 'undefined' || !rows.length) return rows
+  try {
+    const existing = JSON.parse(localStorage.getItem(TRANSACTIONS_KEY) || '[]') as Transaction[]
+    const pendingMerchants = JSON.parse(localStorage.getItem(PENDING_MERCHANTS_KEY) || '{}') as Record<string, string>
+
+    return rows.map((candidate) => {
+      const matched = existing.find((current) => {
+        if (current.date !== candidate.date || current.time !== candidate.time || current.card !== candidate.card || current.amount !== candidate.amount) return false
+
+        if (current.merchantHash && candidate.merchantHash) return current.merchantHash === candidate.merchantHash
+
+        const currentMerchant = current.merchant || pendingMerchants[current.id] || ''
+        if (currentMerchant && candidate.merchant) return normalizeMerchant(currentMerchant) === normalizeMerchant(candidate.merchant)
+
+        // Older classified rows may have had their merchant removed before a hash was stored.
+        // Date + time + card + amount identifies the same card-statement line well enough
+        // to prevent it from being re-added solely because auto classification ran first.
+        return !currentMerchant
+      })
+
+      // FinanceApp performs the final duplicate count/filter using merchant equality.
+      // Aligning the candidate merchant with the known row lets that existing logic
+      // count this as skipped instead of adding a duplicate categorized transaction.
+      return matched ? { ...candidate, merchant: matched.merchant || '' } : candidate
+    })
+  } catch {
+    return rows
   }
 }
 
@@ -93,5 +125,6 @@ export async function parseCardWorkbook(file: File): Promise<Transaction[]> {
     }).filter((row) => row.merchant && row.amount > 0)
   }
   if (!parsed.length) throw new Error('지원되는 현대카드 또는 신한카드 내역 형식을 찾지 못했습니다.')
-  return applyLearnedMerchantRules(parsed)
+  const resolved = await applyLearnedMerchantRules(parsed)
+  return alignKnownDuplicates(resolved)
 }
