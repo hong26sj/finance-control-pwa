@@ -1,16 +1,18 @@
 'use client'
 
 import { useLayoutEffect } from 'react'
-import { normalizeMerchant, Transaction } from '@/lib/finance'
-import { DEFAULT_APPS_SCRIPT_URL, saveMerchantRule } from '@/lib/drive-api'
+import { Transaction } from '@/lib/finance'
+import { DEFAULT_APPS_SCRIPT_URL, saveMerchantRule, saveTransactionMerchants } from '@/lib/drive-api'
 
-type PendingRule = { rawMerchant?: string; merchantHash?: string; displayName: string; category: string }
+type PendingRule = { transactionId: string; rawMerchant?: string; merchantHash?: string; category: string }
+type PendingMerchant = { id: string; merchant: string; merchantHash?: string; category?: string }
 
 export function PrivacyRuntime() {
   useLayoutEffect(() => {
     const originalSetItem = Storage.prototype.setItem
     const rawById = new Map<string, string>()
     const pendingRules = new Map<string, PendingRule>()
+    const pendingMerchants = new Map<string, PendingMerchant>()
 
     const getAuth = () => ({
       token: window.localStorage.getItem('flow-drive-token') || '',
@@ -23,14 +25,24 @@ export function PrivacyRuntime() {
       try {
         await saveMerchantRule(endpoint, token, rule)
         pendingRules.delete(key)
-        if (rule.rawMerchant) rawById.delete(key)
       } catch {
         pendingRules.set(key, rule)
       }
     }
 
+    const persistMerchants = async () => {
+      const { token, endpoint } = getAuth()
+      if (!token || pendingMerchants.size === 0) return
+      const items = [...pendingMerchants.values()]
+      try {
+        await saveTransactionMerchants(endpoint, token, items)
+        items.forEach((item) => pendingMerchants.delete(item.id))
+      } catch { /* keep pending in memory */ }
+    }
+
     const flushPending = () => {
       pendingRules.forEach((rule, key) => { void persistRule(key, rule) })
+      void persistMerchants()
     }
 
     const sanitizeRows = (value: string) => {
@@ -43,29 +55,23 @@ export function PrivacyRuntime() {
       const previousById = new Map(previous.map((row) => [row.id, row]))
 
       const sanitized = rows.map((row) => {
-        if (row.category === '미분류') {
-          if (row.merchant?.trim()) rawById.set(row.id, row.merchant.trim())
-          return { ...row, merchant: '' }
-        }
-
-        const rawMerchant = rawById.get(row.id)
-        const previousRow = previousById.get(row.id)
-        let displayName = String(row.merchant || '').trim()
-
+        const rawMerchant = String(row.merchant || rawById.get(row.id) || '').trim()
         if (rawMerchant) {
-          if (!displayName || normalizeMerchant(displayName) === normalizeMerchant(rawMerchant)) displayName = row.category
-          void persistRule(row.id, { rawMerchant, merchantHash: row.merchantHash, displayName, category: row.category })
-        } else if (row.merchantHash && previousRow && (previousRow.merchant !== displayName || previousRow.category !== row.category)) {
-          if (!displayName) displayName = row.category
-          void persistRule(row.id, { merchantHash: row.merchantHash, displayName, category: row.category })
+          rawById.set(row.id, rawMerchant)
+          pendingMerchants.set(row.id, { id: row.id, merchant: rawMerchant, merchantHash: row.merchantHash, category: row.category })
         }
 
-        return { ...row, merchant: displayName }
+        const previousRow = previousById.get(row.id)
+        if (row.category !== '미분류' && (rawMerchant || row.merchantHash) && (!previousRow || previousRow.category !== row.category)) {
+          void persistRule(row.id, { transactionId: row.id, rawMerchant: rawMerchant || undefined, merchantHash: row.merchantHash, category: row.category })
+        }
+
+        return { ...row, merchant: '' }
       })
+      window.setTimeout(() => void persistMerchants(), 0)
       return JSON.stringify(sanitized)
     }
 
-    // 기존 버전에서 남아 있던 미분류 원문도 첫 실행 시 즉시 제거합니다.
     const existing = window.localStorage.getItem('flow-preview-transactions')
     if (existing) originalSetItem.call(window.localStorage, 'flow-preview-transactions', sanitizeRows(existing))
 
