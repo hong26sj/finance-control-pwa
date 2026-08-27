@@ -28,7 +28,8 @@ function sanitizeTransaction_(item) {
     fixed: item.fixed === true,
     performanceIncluded: item.performanceIncluded !== false,
     cashFlow: item.cashFlow === true,
-    merchantHash: /^[a-f0-9]{64}$/.test(hash) ? hash : ''
+    merchantHash: /^[a-f0-9]{64}$/.test(hash) ? hash : '',
+    merchantCategoryAmbiguous: item.merchantCategoryAmbiguous === true
   };
 }
 
