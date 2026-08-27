@@ -5,9 +5,36 @@ import { MoneyCalendar } from './money-calendar'
 
 export function ServiceWorkerRegister() {
   useEffect(() => {
+    let reloading = false
+    let registration: ServiceWorkerRegistration | undefined
+
+    const checkForUpdate = () => registration?.update().catch(() => undefined)
+    const onControllerChange = () => {
+      if (reloading) return
+      reloading = true
+      window.location.reload()
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') checkForUpdate()
+    }
+    const onPageShow = () => checkForUpdate()
+
     if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
       const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ''
-      navigator.serviceWorker.register(`${basePath}/sw.js`, { scope: `${basePath}/` }).catch(() => undefined)
+      navigator.serviceWorker.addEventListener('controllerchange', onControllerChange)
+      navigator.serviceWorker
+        .register(`${basePath}/sw.js`, {
+          scope: `${basePath}/`,
+          updateViaCache: 'none',
+        })
+        .then((value) => {
+          registration = value
+          return value.update()
+        })
+        .catch(() => undefined)
+
+      document.addEventListener('visibilitychange', onVisibilityChange)
+      window.addEventListener('pageshow', onPageShow)
     }
 
     const applyCurrentTime = (event: MouseEvent) => {
@@ -28,7 +55,12 @@ export function ServiceWorkerRegister() {
     }
 
     document.addEventListener('click', applyCurrentTime)
-    return () => document.removeEventListener('click', applyCurrentTime)
+    return () => {
+      document.removeEventListener('click', applyCurrentTime)
+      navigator.serviceWorker?.removeEventListener('controllerchange', onControllerChange)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('pageshow', onPageShow)
+    }
   }, [])
   return <MoneyCalendar />
 }
