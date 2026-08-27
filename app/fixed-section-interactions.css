@@ -4,8 +4,12 @@
 .fixed-section.fixed-collapsible>.section-head:focus-visible{outline:2px solid #719482;outline-offset:-2px}
 .fixed-section.fixed-collapsible>.section-head>div:first-child{min-width:0}
 .fixed-section.fixed-collapsible>.section-head>div:first-child p{margin-bottom:0}
-.fixed-collapse-chevron{flex:0 0 auto;width:28px;height:28px;border:1px solid var(--line);border-radius:8px;display:grid;place-items:center;font-size:18px;font-weight:800;line-height:1;color:var(--muted);transition:transform .18s ease}
-.fixed-section.fixed-collapsible:not(.fixed-collapsed) .fixed-collapse-chevron{transform:rotate(180deg)}
+
+/* The whole card header is clickable, so keep the indicator visually light instead of a second button. */
+.fixed-collapse-chevron{flex:0 0 24px;width:24px;height:24px;border:0!important;border-radius:0!important;background:transparent!important;display:block;position:relative;font-size:0!important;line-height:0;color:#74827a;transition:none}
+.fixed-collapse-chevron::after{content:'';position:absolute;left:50%;top:50%;width:8px;height:8px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:translate(-50%,-65%) rotate(45deg);transition:transform .18s ease}
+.fixed-section.fixed-collapsible:not(.fixed-collapsed) .fixed-collapse-chevron::after{transform:translate(-50%,-35%) rotate(225deg)}
+.fixed-section.fixed-collapsible:not(.fixed-collapsed) .fixed-collapse-chevron{transform:none}
 .fixed-section.fixed-collapsible.fixed-collapsed>.loan-cards,
 .fixed-section.fixed-collapsible.fixed-collapsed>.fixed-detail-table{display:none!important}
 .fixed-section.fixed-collapsible>.loan-cards,
@@ -24,5 +28,6 @@
   .fixed-section.fixed-collapsible>.loan-cards,
   .fixed-section.fixed-collapsible>.fixed-detail-table{margin:0 14px 14px}
   .fixed-debt-total,.fixed-section.fixed-collapsible>.section-head>b:not(.fixed-debt-total){font-size:12px}
-  .fixed-collapse-chevron{width:26px;height:26px;font-size:17px}
+  .fixed-collapse-chevron{flex-basis:22px;width:22px;height:22px}
+  .fixed-collapse-chevron::after{width:7px;height:7px;border-right-width:2px;border-bottom-width:2px}
 }
