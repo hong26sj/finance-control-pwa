@@ -42,22 +42,27 @@ body{font-size:var(--flow-base);letter-spacing:-.015em;-webkit-font-smoothing:an
 .pay-card>span{font-size:13px!important}.pay-card h2{font-size:20px!important;font-weight:760!important}.pay-card p{font-size:var(--flow-xs)!important}
 
 /* Transactions / budget */
-.tx-row>span,.tx-row>strong,.budget-list span,.budget-list b,.budget-list em{font-size:13px!important}
-.tx-row small,.budget-list small{font-size:var(--flow-xs)!important}
+.tx-row>span,.tx-row>strong{font-size:13px!important}
+.tx-row small{font-size:var(--flow-xs)!important}
+.budget-list>div{width:100%!important;min-width:0!important}
+.budget-list span,.budget-list b,.budget-list em{font-size:12.5px!important}
+.budget-list span{min-width:0!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+.budget-list b{min-width:118px!important;white-space:nowrap!important;text-align:right!important;font-weight:650!important}
+.budget-list small{font-size:12px!important}
 
 /* Fixed cost / debt: title and amount use matching visual weight. */
 .fixed-section.fixed-collapsible>.section-head{align-items:center!important}
 .fixed-section.fixed-collapsible>.section-head h3{font-size:19px!important;font-weight:760!important}
 .fixed-debt-total,
 .fixed-section.fixed-collapsible>.section-head>b:not(.fixed-debt-total){font-size:17px!important;font-weight:760!important;line-height:1.2!important}
-.loan-summary-row>div:first-child b{font-size:16px!important;font-weight:720!important}
+.loan-summary-row>div:first-child b{font-size:15px!important;font-weight:700!important}
 .loan-summary-row>div>span{font-size:var(--flow-xs)!important}
-.loan-summary-row strong{font-size:16px!important;font-weight:720!important}
+.loan-summary-row strong{font-size:15px!important;font-weight:700!important}
 .edit-toggle{font-size:12px!important}
 .loan-values label,.rate-change label{font-size:var(--flow-sm)!important}
-.calculated-payment span,.calculated-payment small{font-size:var(--flow-sm)!important}.calculated-payment b{font-size:17px!important;font-weight:760!important}
+.calculated-payment span,.calculated-payment small{font-size:var(--flow-sm)!important}.calculated-payment b{font-size:16px!important;font-weight:740!important}
 
-/* Keep iOS inputs at 16px to prevent focus zoom, but make surrounding text match visually. */
+/* Keep iOS inputs at 16px to prevent focus zoom. */
 .loan-values input,.rate-change input,.fixed-detail-table input,
 .modal input,.modal select,.settings-card input,.cash-entry input,
 .form-grid input,.form-grid select{
@@ -69,7 +74,7 @@ body{font-size:var(--flow-base);letter-spacing:-.015em;-webkit-font-smoothing:an
   letter-spacing:-.01em!important;
 }
 
-.fixed-detail-table span,.fixed-detail-table span b{font-size:14px!important;font-weight:600!important}
+.fixed-detail-table span,.fixed-detail-table span b{font-size:13px!important;font-weight:560!important}
 .fixed-detail-table>div:first-child{font-size:var(--flow-sm)!important}
 
 /* Bottom navigation */
@@ -83,16 +88,23 @@ body{font-size:var(--flow-base);letter-spacing:-.015em;-webkit-font-smoothing:an
   .fixed-debt-total,
   .fixed-section.fixed-collapsible>.section-head>b:not(.fixed-debt-total){font-size:16px!important}
 
-  /* In editable fixed-cost rows, text and input values share the same 16px scale. */
-  .fixed-detail-table>div:not(:first-child)>span,
-  .fixed-detail-table>div:not(:first-child)>span b,
-  .fixed-detail-table>div:not(:first-child)>input{
-    font-size:16px!important;
-    line-height:1.2!important;
-  }
-  .fixed-detail-table>div:first-child span{font-size:12px!important}
+  /* Budget rows keep label and amount on a single line and stay inside the card. */
+  .budget-list>div{grid-template-columns:9px minmax(0,1fr) minmax(118px,auto)!important;column-gap:9px!important}
+  .budget-list span,.budget-list b{font-size:12px!important}
+  .budget-list small{font-size:11.5px!important}
+  .budget-list .progress{grid-column:2/4!important;width:100%!important}
 
-  .loan-summary-row>div:first-child b,.loan-summary-row strong{font-size:16px!important}
+  /* Fixed-cost table text is intentionally smaller than editable values for readability. */
+  .fixed-detail-table>div:not(:first-child)>span,
+  .fixed-detail-table>div:not(:first-child)>span b{
+    font-size:13px!important;
+    line-height:1.2!important;
+    font-weight:560!important;
+  }
+  .fixed-detail-table>div:not(:first-child)>input{font-size:16px!important;line-height:1.2!important}
+  .fixed-detail-table>div:first-child span{font-size:11.5px!important}
+
+  .loan-summary-row>div:first-child b,.loan-summary-row strong{font-size:15px!important}
   .loan-values label,.rate-change label{font-size:12px!important}
   .bottom-nav>button span{font-size:11px!important}
 }
