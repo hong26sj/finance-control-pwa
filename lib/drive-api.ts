@@ -2,7 +2,7 @@ import { FinanceSettings, FixedPlan, Loan, MerchantRule, Transaction } from './f
 
 export const DEFAULT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwmsy16Y7h9Js_4kY7qCscrQYuvWCm_DUAwOIO3-k9is1xWnOC72SHkWKPK8jOFc7bPDg/exec'
 
-export type DriveTransaction = Pick<Transaction, 'id' | 'date' | 'card' | 'amount' | 'category' | 'living' | 'fixed' | 'performanceIncluded' | 'cashFlow' | 'merchantHash'> & { merchant?: string }
+export type DriveTransaction = Pick<Transaction, 'id' | 'date' | 'card' | 'amount' | 'category' | 'living' | 'fixed' | 'performanceIncluded' | 'cashFlow' | 'merchantHash' | 'merchantCategoryAmbiguous'> & { merchant?: string }
 export type FinanceSnapshot = { version?: number; privacyVersion?: number; updatedAt?: string; transactions: DriveTransaction[]; loans: Loan[]; fixedPlans: FixedPlan[]; settings: FinanceSettings; cashFlow: number }
 export type MerchantResolution = { merchant: string; merchantHash: string; rule?: MerchantRule }
 export type MerchantVaultItem = { id: string; merchant: string; merchantHash?: string; category?: string }
@@ -27,6 +27,7 @@ export const privateTransactionsForDrive = (items: Transaction[]): DriveTransact
   performanceIncluded: item.performanceIncluded,
   cashFlow: item.cashFlow,
   merchantHash: item.merchantHash,
+  merchantCategoryAmbiguous: item.merchantCategoryAmbiguous,
   merchant: item.merchant || undefined,
 }))
 
