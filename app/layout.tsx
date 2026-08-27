@@ -3,6 +3,7 @@ import { BudgetInteractions } from '@/components/budget-interactions'
 import { FixedSectionInteractions } from '@/components/fixed-section-interactions'
 import { PrivacyRuntime } from '@/components/privacy-runtime'
 import { TransactionBulkInteractions } from '@/components/transaction-bulk-interactions'
+import { FinancePolicyInteractions } from '@/components/finance-policy-interactions'
 import './globals.css'
 import './mobile-fixes.css'
 import './budget-interactions.css'
@@ -11,6 +12,7 @@ import './fixed-section-interactions.css'
 import './calendar-position-fix.css'
 import './typography-system.css'
 import './transaction-bulk.css'
+import './finance-policy-interactions.css'
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ''
 
@@ -33,7 +35,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="ko">
-      <body><PrivacyRuntime />{children}<BudgetInteractions /><FixedSectionInteractions /><TransactionBulkInteractions /></body>
+      <body><PrivacyRuntime />{children}<BudgetInteractions /><FixedSectionInteractions /><TransactionBulkInteractions /><FinancePolicyInteractions /></body>
     </html>
   )
 }
