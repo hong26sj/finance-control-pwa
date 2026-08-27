@@ -76,6 +76,39 @@ function dataFile_() {
   return DriveApp.getFileById(id);
 }
 
+function financeFolder_() {
+  var properties = PropertiesService.getScriptProperties();
+  var folderId = properties.getProperty('FINANCE_FOLDER_ID') || '';
+  if (folderId) {
+    try { return DriveApp.getFolderById(folderId); } catch (_) {}
+  }
+
+  var root = DriveApp.getRootFolder();
+  var folders = root.getFoldersByName('Flow Finance');
+  var folder = folders.hasNext() ? folders.next() : root.createFolder('Flow Finance');
+  properties.setProperty('FINANCE_FOLDER_ID', folder.getId());
+  return folder;
+}
+
+function organizeFinanceStorage() {
+  var properties = PropertiesService.getScriptProperties();
+  var fileId = properties.getProperty('FINANCE_DATA_FILE_ID') || '';
+  if (!fileId) throw new Error('STORAGE_NOT_INITIALIZED');
+
+  var folder = financeFolder_();
+  var file = DriveApp.getFileById(fileId);
+  file.moveTo(folder);
+  merchantHmacSecret_();
+
+  return {
+    ok: true,
+    folderId: folder.getId(),
+    folderName: folder.getName(),
+    fileId: file.getId(),
+    fileName: file.getName()
+  };
+}
+
 function readSnapshot_() {
   var text = dataFile_().getBlob().getDataAsString('UTF-8');
   return text ? sanitizeSnapshot_(JSON.parse(text)) : defaultSnapshot_();
@@ -137,10 +170,18 @@ function setupFinanceStorage(folderId, accessToken) {
     properties.setProperty('ACCESS_TOKEN_HASH', sha256Hex_(String(accessToken)));
     return { fileId: existingId, fileName: DriveApp.getFileById(existingId).getName(), reused: true };
   }
-  var folder = folderId ? DriveApp.getFolderById(folderId) : DriveApp.getRootFolder();
+
+  var folder;
+  if (folderId) {
+    folder = DriveApp.getFolderById(folderId);
+    properties.setProperty('FINANCE_FOLDER_ID', folder.getId());
+  } else {
+    folder = financeFolder_();
+  }
+
   var file = folder.createFile('flow-finance-data.json', JSON.stringify(defaultSnapshot_()), MimeType.PLAIN_TEXT);
   properties.setProperties({ FINANCE_DATA_FILE_ID: file.getId(), ACCESS_TOKEN_HASH: sha256Hex_(String(accessToken)) }, false);
-  return { fileId: file.getId(), fileName: file.getName(), reused: false };
+  return { fileId: file.getId(), fileName: file.getName(), folderId: folder.getId(), reused: false };
 }
 
 function resetFinanceAccessToken(accessToken) {
