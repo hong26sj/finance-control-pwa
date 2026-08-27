@@ -1,9 +1,9 @@
 /* Calendar date placement: keep the date label anchored to the cell's top-left corner. */
 .calendar-cell{position:relative!important;text-align:left!important;vertical-align:top!important}
-.calendar-day-number{position:absolute!important;top:6px!important;left:6px!important;margin:0!important;transform:none!important;inset-inline-start:6px!important}
+.calendar-day-number{position:absolute!important;top:6px!important;left:6px!important;margin:0!important;transform:none!important;inset-inline-start:6px!important;font-size:10px!important;line-height:1!important;font-weight:650!important}
 .calendar-cell strong{margin-top:26px!important}
 
 @media(max-width:700px){
-  .calendar-day-number{top:4px!important;left:4px!important;inset-inline-start:4px!important}
+  .calendar-day-number{top:4px!important;left:4px!important;inset-inline-start:4px!important;font-size:9px!important}
   .calendar-cell strong{margin-top:23px!important}
 }
