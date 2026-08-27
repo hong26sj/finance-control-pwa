@@ -1,0 +1,66 @@
+/* Approved full-preview baseline: visual overrides only. Existing data and business logic remain unchanged. */
+:root{--preview-sidebar:190px;--preview-header:58px;--preview-radius:15px;--preview-gap:13px}
+
+/* Shell */
+.sidebar{width:var(--preview-sidebar);padding:18px 12px;background:#fff;border-right:1px solid var(--line)}
+.brand{padding:5px 8px 20px;gap:10px}
+.brand>div{width:36px;height:36px;border-radius:11px;font-size:19px}
+.brand span b{font-size:18px}.brand span small{font-size:9px}
+.sidebar nav{gap:5px}.sidebar nav button{padding:10px 11px;border-radius:10px;gap:10px;font-size:12px;color:var(--muted)}
+.sidebar nav button svg{width:17px}.sidebar nav button.active{background:#eaf0ec;color:var(--ink)}
+.sync{padding:11px;border-radius:11px;background:#f0f3f0}.sync span,.sync small{font-size:8px}.sync b{font-size:10px;margin:4px 0}
+.app-shell>main{margin-left:var(--preview-sidebar);background:var(--paper)}
+.app-shell>main>header{height:var(--preview-header);padding:0 18px;background:rgba(255,255,255,.94);border-bottom:1px solid var(--line)}
+.current-date{font-size:11px;font-weight:750;margin-right:auto}.header-eye{width:36px;height:36px;border-radius:9px}
+.content{max-width:1180px;padding:20px 20px 94px}
+
+/* Typography and actions */
+.page-title{margin-bottom:18px;gap:14px;align-items:flex-end}.page-title h1{font-size:24px;margin:5px 0 4px}.page-title p{font-size:11px;line-height:1.5}.eyebrow{font-size:9px;letter-spacing:.13em}
+.primary,.secondary{min-height:40px;padding:0 13px;border-radius:10px;font-size:11px}
+.title-actions{gap:8px}.icon-btn{border-radius:9px}
+
+/* Cards and dashboard */
+.hero-grid{grid-template-columns:1.2fr .8fr;gap:var(--preview-gap)}
+.hero,.panel,.metrics article{border-radius:var(--preview-radius);box-shadow:none}
+.hero{padding:18px}.hero.dark{gap:16px;background:var(--forest);background-image:none}.hero h2{font-size:27px;margin:5px 0}.hero span,.hero p{font-size:9px}.hero.dark span,.hero.dark p{color:rgba(255,255,255,.65)}
+.ring{width:78px;height:78px;padding:6px}.ring strong{font-size:14px}.ring span{font-size:7px}.dark .ring>div{background:var(--forest)}
+.week-formula{padding-top:1px;border-top:1px solid rgba(255,255,255,.12);background:transparent;border-radius:0;gap:8px}.week-formula span{padding:10px 0;background:transparent}.week-formula b{font-size:11px}
+.panel-label b{font-size:11px}.progress{height:6px;margin-top:12px}.notice{margin-top:12px}
+.focus-alert{margin:13px 0;padding:13px 15px;border-radius:13px}.focus-alert h3{font-size:12px}.focus-alert p,.focus-alert span,.focus-alert small{font-size:9px}
+.metrics{gap:10px;margin:13px 0}.metrics article{padding:14px}.metrics b{font-size:16px;margin:4px 0}.metrics span,.metrics small{font-size:8px}
+.two-col{grid-template-columns:1.2fr .8fr;gap:var(--preview-gap)}.panel{padding:16px}.section-head h3{font-size:14px}.daily-chart{height:125px;margin-top:14px}.daily-chart i{opacity:.58}.daily-chart i.today{opacity:1}.category-list{gap:11px;margin-top:13px}
+
+/* Transactions */
+.search{padding:8px 10px;margin-bottom:10px}.tx-table{border-radius:12px}.tx-header,.tx-row{grid-template-columns:72px minmax(150px,1.4fr) minmax(130px,1fr) 90px 64px;gap:10px;padding:11px}.tx-header{border-radius:8px}.tx-row>span,.tx-row>strong{font-size:10px}.tx-row small{font-size:8px}.tx-row em{font-size:8px;padding:3px 6px}
+
+/* Budget */
+.budget-summary{gap:18px;margin-bottom:13px}.budget-summary h2{font-size:23px}.budget-list>div{grid-template-columns:10px 1fr 170px 1fr 38px;gap:10px;padding:12px}.budget-list>div+div{border-top:1px solid var(--line)}
+.budget-list>div{border-radius:11px}.budget-list span,.budget-list b,.budget-list em{font-size:10px}
+
+/* Cards */
+.card-grid{gap:11px}.pay-card{min-height:155px;border-radius:15px;padding:16px;box-shadow:none}.pay-card>span{margin-top:18px;font-size:10px}.pay-card h2{font-size:20px;margin:6px 0}.pay-card p{font-size:8px}
+
+/* Fixed costs / loans */
+.fixed-section{margin-top:13px}.loan-cards{gap:11px;margin-top:13px}.loan-detail{border-radius:12px;padding:13px}.loan-summary-row{gap:10px}.loan-summary-row strong{font-size:10px}.edit-toggle{font-size:8px;border-radius:8px}.fixed-detail-table>div{padding:9px}.section-note{font-size:8px}
+
+/* Settings */
+.settings-card{max-width:620px}.connection-state{border-radius:11px}.settings-card p{border-radius:10px}.settings-actions{gap:8px}
+
+/* Calendar — override component-local style to match the approved preview shell */
+.money-calendar-page{top:var(--preview-header)!important;left:var(--preview-sidebar)!important;min-height:calc(100vh - var(--preview-header))!important;padding:20px 20px 94px!important}
+.money-calendar-page>.page-title,.money-calendar-page>.panel{max-width:1140px!important}
+.calendar-month-total{min-width:155px!important;border-radius:14px!important;padding:11px 13px!important;text-align:right!important}.calendar-month-total b{font-size:18px!important}
+.calendar-panel{padding:14px!important;border-radius:15px!important}.calendar-toolbar{grid-template-columns:38px 1fr 38px auto!important;margin-bottom:10px!important}.calendar-toolbar h2{font-size:17px!important}.calendar-arrow,.calendar-today{height:36px!important;border-radius:8px!important}
+.calendar-weekdays span{padding:6px 0!important;font-size:9px!important}.calendar-cell{min-height:72px!important;padding:6px!important}.calendar-day-number{min-width:24px!important;height:24px!important;border-radius:7px!important}.calendar-cell strong{font-size:9px!important;margin-top:6px!important}.calendar-cell small{font-size:8px!important}.calendar-dots{left:6px!important;bottom:6px!important}.calendar-dots i{width:5px!important;height:5px!important}.calendar-day-panel{margin-top:12px!important;border-radius:15px!important}.calendar-day-list>div{padding:10px 0!important}
+
+/* Mobile */
+@media(max-width:900px){.hero-grid,.two-col{grid-template-columns:1fr}.metrics{grid-template-columns:1fr}.card-grid{grid-template-columns:1fr}.loan-cards{grid-template-columns:1fr}}
+@media(max-width:700px){
+  .sidebar{width:190px;padding:18px 12px}.app-shell>main{margin-left:0}.app-shell>main>header{height:54px;padding:0 12px}.content{padding:14px 14px calc(78px + env(safe-area-inset-bottom))}
+  .page-title{margin-bottom:16px;align-items:flex-start}.page-title h1{font-size:22px}.page-title p{font-size:10px}.page-title>.primary{width:40px;height:40px;padding:0}
+  .title-actions{margin-top:12px}.title-actions .primary,.title-actions .secondary{min-height:44px;font-size:11px}
+  .hero{padding:16px}.hero.dark{grid-template-columns:1fr 72px}.hero h2{font-size:23px}.ring{width:72px;height:72px}.week-formula{grid-template-columns:repeat(3,1fr);gap:6px}.week-formula span{padding:9px 0}.week-formula span+span{border-left:1px solid rgba(255,255,255,.12);padding-left:6px}
+  .panel{padding:14px}.metrics article{padding:13px}.tx-row{padding:10px 0}.budget-list>div{padding:11px 0}.card-grid{grid-template-columns:1fr}.pay-card{min-height:145px}
+  .bottom-nav{display:flex;padding:6px 3px calc(6px + env(safe-area-inset-bottom));background:rgba(255,255,255,.96)}.bottom-nav button{min-width:0;padding:2px 0}.bottom-nav button span{font-size:7px}.bottom-nav button svg{width:17px}
+  .money-calendar-page{top:54px!important;left:0!important;min-height:calc(100vh - 54px)!important;padding:14px 10px calc(78px + env(safe-area-inset-bottom))!important}.money-calendar-title{display:block!important}.calendar-month-total{margin-top:12px!important;text-align:left!important;min-width:0!important}.calendar-panel{padding:10px!important}.calendar-toolbar{grid-template-columns:36px 1fr 36px!important}.calendar-toolbar .calendar-today{grid-column:1/-1!important}.calendar-cell{min-height:62px!important;padding:4px!important}.calendar-day-number{min-width:22px!important;height:22px!important}.calendar-cell strong{font-size:8px!important}.calendar-dots{left:4px!important;bottom:4px!important}.calendar-day-panel{padding:14px!important}
+}
