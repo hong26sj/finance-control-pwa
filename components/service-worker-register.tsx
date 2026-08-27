@@ -37,6 +37,9 @@ export function ServiceWorkerRegister() {
       window.addEventListener('pageshow', onPageShow)
     }
 
+    const headerDate = document.querySelector<HTMLElement>('.current-date')
+    if (headerDate) headerDate.textContent = headerDate.textContent?.replace(/\s*현재\s*$/, '') || ''
+
     const applyCurrentTime = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null
       const button = target?.closest('button')
