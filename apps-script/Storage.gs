@@ -34,18 +34,19 @@ function sanitizeMerchantRules_(rules) {
 function sanitizeTransaction_(item) {
   item = item || {};
   var hash = String(item.merchantHash || '').toLowerCase();
+  var category = String(item.category || '미분류');
   return {
     id: String(item.id || Utilities.getUuid()),
     date: String(item.date || ''),
     card: String(item.card || ''),
     amount: Number(item.amount || 0),
-    category: String(item.category || '미분류'),
+    category: category,
     living: item.living !== false,
     fixed: item.fixed === true,
     performanceIncluded: item.performanceIncluded !== false,
     cashFlow: item.cashFlow === true,
     merchantHash: /^[a-f0-9]{64}$/.test(hash) ? hash : '',
-    displayName: item.category === '미분류' ? '' : String(item.displayName || '').trim().slice(0, 120)
+    merchant: category === '미분류' ? String(item.merchant || '').trim().slice(0, 160) : ''
   };
 }
 
