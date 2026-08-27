@@ -30,6 +30,60 @@ function merchantFingerprint_(merchant) {
   return bytesToHex_(Utilities.computeHmacSha256Signature(normalized, merchantHmacSecret_(), Utilities.Charset.UTF_8));
 }
 
+function merchantVaultKey_() {
+  var properties = PropertiesService.getScriptProperties();
+  var key = properties.getProperty('MERCHANT_VAULT_KEY');
+  if (!key) {
+    key = Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, Utilities.getUuid() + '|vault|' + Date.now() + '|' + Math.random())).replace(/=+$/g, '');
+    properties.setProperty('MERCHANT_VAULT_KEY', key);
+  }
+  return key;
+}
+
+function signedByte_(value) {
+  return value > 127 ? value - 256 : value;
+}
+
+function xorWithVaultStream_(bytes, nonce, key) {
+  var out = [];
+  var block = 0;
+  for (var offset = 0; offset < bytes.length; offset += 32) {
+    var stream = Utilities.computeHmacSha256Signature(nonce + '|' + block, key, Utilities.Charset.UTF_8);
+    for (var i = 0; i < 32 && offset + i < bytes.length; i++) {
+      var a = bytes[offset + i] < 0 ? bytes[offset + i] + 256 : bytes[offset + i];
+      var b = stream[i] < 0 ? stream[i] + 256 : stream[i];
+      out.push(signedByte_(a ^ b));
+    }
+    block += 1;
+  }
+  return out;
+}
+
+function encryptVaultText_(text) {
+  var master = merchantVaultKey_();
+  var encKey = sha256Hex_('enc|' + master);
+  var macKey = sha256Hex_('mac|' + master);
+  var nonce = Utilities.getUuid().replace(/-/g, '') + Date.now().toString(36);
+  var plainBytes = Utilities.newBlob(String(text || ''), 'text/plain').getBytes();
+  var cipherBytes = xorWithVaultStream_(plainBytes, nonce, encKey);
+  var cipher = Utilities.base64EncodeWebSafe(cipherBytes).replace(/=+$/g, '');
+  var tag = bytesToHex_(Utilities.computeHmacSha256Signature(nonce + '.' + cipher, macKey, Utilities.Charset.UTF_8));
+  return JSON.stringify({ v: 1, n: nonce, c: cipher, t: tag });
+}
+
+function decryptVaultText_(envelopeText) {
+  var envelope = JSON.parse(String(envelopeText || '{}'));
+  if (Number(envelope.v) !== 1 || !envelope.n || typeof envelope.c !== 'string' || !envelope.t) throw new Error('INVALID_VAULT');
+  var master = merchantVaultKey_();
+  var encKey = sha256Hex_('enc|' + master);
+  var macKey = sha256Hex_('mac|' + master);
+  var expected = bytesToHex_(Utilities.computeHmacSha256Signature(envelope.n + '.' + envelope.c, macKey, Utilities.Charset.UTF_8));
+  if (expected !== String(envelope.t)) throw new Error('VAULT_INTEGRITY_FAILED');
+  var cipherBytes = envelope.c ? Utilities.base64DecodeWebSafe(envelope.c) : [];
+  var plainBytes = xorWithVaultStream_(cipherBytes, envelope.n, encKey);
+  return Utilities.newBlob(plainBytes, 'text/plain').getDataAsString('UTF-8');
+}
+
 function login_(password) {
   var lock = LockService.getScriptLock();
   lock.waitLock(5000);
