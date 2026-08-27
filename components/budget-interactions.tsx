@@ -152,9 +152,9 @@ export function BudgetInteractions() {
         <button type="button" onClick={() => setSelection(null)} aria-label="닫기">×</button>
       </header>
       <div className="budget-detail-list">
-        {selection.rows.length === 0 ? <p className="budget-detail-empty">이 카테고리에 포함된 거래가 없습니다.</p> : selection.rows.map((row) => <div className="budget-detail-item" key={row.id}>
+        {selection.rows.length === 0 ? <p className="budget-detail-empty">이 카테고리에 포함된 거래가 없습니다.</p> : selection.rows.map((row) => <div className={`budget-detail-item${row.merchantCategoryAmbiguous ? ' budget-detail-item-ambiguous' : ''}`} key={row.id}>
           <button type="button" className="budget-detail-row" onClick={() => void startEditing(row)}>
-            <span><b>{row.date.replaceAll('-', '.')}</b><small>{row.card}</small></span>
+            <span><b>{row.date.replaceAll('-', '.')}</b><small>{row.card}{row.merchantCategoryAmbiguous && <em>복수 분류 이력</em>}</small></span>
             <strong>{won(row.amount)}</strong>
           </button>
           {editingId === row.id && draft && <div className="budget-row-editor">
