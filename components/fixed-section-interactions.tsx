@@ -19,12 +19,16 @@ export function FixedSectionInteractions() {
       return Number(digits).toLocaleString('ko-KR')
     }
 
-    const formatMoneyInput = (input: HTMLInputElement) => {
-      if (!isMoneyInput(input)) return
+    const prepareMoneyInput = (input: HTMLInputElement) => {
       input.dataset.flowMoneyInput = '1'
       if (input.type !== 'text') input.type = 'text'
       input.inputMode = 'numeric'
       input.pattern = '[0-9,]*'
+    }
+
+    const formatMoneyInput = (input: HTMLInputElement) => {
+      if (!isMoneyInput(input)) return
+      prepareMoneyInput(input)
       const formatted = formatDigits(input.value)
       if (input.value !== formatted) input.value = formatted
     }
@@ -110,20 +114,14 @@ export function FixedSectionInteractions() {
       toggleHeader(header)
     }
 
-    const onBeforeInput = (event: InputEvent) => {
+    // Capture phase runs before React's delegated onChange handler. React therefore
+    // receives plain digits even though the user sees comma-formatted text.
+    const onInputCapture = (event: Event) => {
       const input = event.target instanceof HTMLInputElement ? event.target : null
       if (!isMoneyInput(input) || !input) return
-
-      if (input.type !== 'text') input.type = 'text'
-      const current = input.value
-      if (!current.includes(',')) return
-
-      const selectionStart = input.selectionStart ?? current.length
-      const selectionEnd = input.selectionEnd ?? selectionStart
-      const rawStart = rawDigits(current.slice(0, selectionStart)).length
-      const rawEnd = rawDigits(current.slice(0, selectionEnd)).length
-      input.value = rawDigits(current)
-      try { input.setSelectionRange(rawStart, rawEnd) } catch { /* selection is best-effort */ }
+      prepareMoneyInput(input)
+      const digits = rawDigits(input.value)
+      if (input.value !== digits) input.value = digits
     }
 
     const onInput = (event: Event) => {
@@ -131,7 +129,7 @@ export function FixedSectionInteractions() {
       if (isMoneyInput(input) && input) {
         window.setTimeout(() => {
           formatMoneyInput(input)
-          try { input.setSelectionRange(input.value.length, input.value.length) } catch { /* selection is best-effort */ }
+          try { input.setSelectionRange(input.value.length, input.value.length) } catch { /* best effort */ }
         }, 0)
       }
       scheduleSync()
@@ -144,7 +142,7 @@ export function FixedSectionInteractions() {
 
     document.addEventListener('click', onClick)
     document.addEventListener('keydown', onKeyDown)
-    document.addEventListener('beforeinput', onBeforeInput as EventListener, true)
+    document.addEventListener('input', onInputCapture, true)
     document.addEventListener('input', onInput)
     document.addEventListener('focusout', onFocusOut)
     scheduleSync()
@@ -153,7 +151,7 @@ export function FixedSectionInteractions() {
       if (timer !== undefined) window.clearTimeout(timer)
       document.removeEventListener('click', onClick)
       document.removeEventListener('keydown', onKeyDown)
-      document.removeEventListener('beforeinput', onBeforeInput as EventListener, true)
+      document.removeEventListener('input', onInputCapture, true)
       document.removeEventListener('input', onInput)
       document.removeEventListener('focusout', onFocusOut)
     }
