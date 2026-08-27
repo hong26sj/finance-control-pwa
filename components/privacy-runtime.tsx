@@ -10,7 +10,6 @@ type PendingMerchant = { id: string; merchant: string; merchantHash?: string; ca
 export function PrivacyRuntime() {
   useLayoutEffect(() => {
     const originalSetItem = Storage.prototype.setItem
-    const rawById = new Map<string, string>()
     const pendingRules = new Map<string, PendingRule>()
     const pendingMerchants = new Map<string, PendingMerchant>()
 
@@ -45,7 +44,7 @@ export function PrivacyRuntime() {
       void persistMerchants()
     }
 
-    const sanitizeRows = (value: string) => {
+    const processRows = (value: string) => {
       let rows: Transaction[]
       try { rows = JSON.parse(value) as Transaction[] } catch { return value }
       if (!Array.isArray(rows)) return value
@@ -54,31 +53,40 @@ export function PrivacyRuntime() {
       try { previous = JSON.parse(window.localStorage.getItem('flow-preview-transactions') || '[]') as Transaction[] } catch { /* ignore */ }
       const previousById = new Map(previous.map((row) => [row.id, row]))
 
-      const sanitized = rows.map((row) => {
-        const rawMerchant = String(row.merchant || rawById.get(row.id) || '').trim()
-        if (rawMerchant) {
-          rawById.set(row.id, rawMerchant)
-          pendingMerchants.set(row.id, { id: row.id, merchant: rawMerchant, merchantHash: row.merchantHash, category: row.category })
+      rows.forEach((row) => {
+        const merchant = String(row.merchant || '').trim()
+        if (merchant) {
+          pendingMerchants.set(row.id, {
+            id: row.id,
+            merchant,
+            merchantHash: row.merchantHash,
+            category: row.category,
+          })
         }
 
         const previousRow = previousById.get(row.id)
-        if (row.category !== '미분류' && (rawMerchant || row.merchantHash) && (!previousRow || previousRow.category !== row.category)) {
-          void persistRule(row.id, { transactionId: row.id, rawMerchant: rawMerchant || undefined, merchantHash: row.merchantHash, category: row.category })
+        if (row.category !== '미분류' && (merchant || row.merchantHash) && (!previousRow || previousRow.category !== row.category)) {
+          void persistRule(row.id, {
+            transactionId: row.id,
+            rawMerchant: merchant || undefined,
+            merchantHash: row.merchantHash,
+            category: row.category,
+          })
         }
-
-        // The classification inbox must retain the raw merchant name across PWA restarts.
-        // Once classified, continue removing the merchant from the local transaction snapshot.
-        return { ...row, merchant: row.category === '미분류' ? rawMerchant : '' }
       })
+
+      // Do not strip merchant names from the browser snapshot. The transaction inbox
+      // must show the merchant after the PWA is closed and opened again, and retaining
+      // the name also makes duplicate detection reliable on later Excel imports.
       window.setTimeout(() => void persistMerchants(), 0)
-      return JSON.stringify(sanitized)
+      return value
     }
 
     const existing = window.localStorage.getItem('flow-preview-transactions')
-    if (existing) originalSetItem.call(window.localStorage, 'flow-preview-transactions', sanitizeRows(existing))
+    if (existing) originalSetItem.call(window.localStorage, 'flow-preview-transactions', processRows(existing))
 
     Storage.prototype.setItem = function (key: string, value: string) {
-      if (this === window.localStorage && key === 'flow-preview-transactions') value = sanitizeRows(value)
+      if (this === window.localStorage && key === 'flow-preview-transactions') value = processRows(value)
       const result = originalSetItem.call(this, key, value)
       if (this === window.localStorage && key === 'flow-drive-token' && value) window.setTimeout(flushPending, 0)
       return result
