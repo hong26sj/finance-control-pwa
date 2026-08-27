@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Manrope, Noto_Sans_KR } from 'next/font/google'
 import { BudgetInteractions } from '@/components/budget-interactions'
+import { FixedSectionInteractions } from '@/components/fixed-section-interactions'
 import { PrivacyRuntime } from '@/components/privacy-runtime'
 import './globals.css'
 import './mobile-fixes.css'
@@ -30,7 +31,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="ko">
-      <body className={`${manrope.variable} ${noto.variable}`}><PrivacyRuntime />{children}<BudgetInteractions /></body>
+      <body className={`${manrope.variable} ${noto.variable}`}><PrivacyRuntime />{children}<BudgetInteractions /><FixedSectionInteractions /></body>
     </html>
   )
 }
