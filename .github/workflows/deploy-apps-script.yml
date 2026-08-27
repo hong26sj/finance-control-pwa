@@ -57,3 +57,4 @@ jobs:
         run: clasp deploy --deploymentId "$DEPLOYMENT_ID" --description "GitHub ${GITHUB_SHA}"
 
       # Secret verification trigger: this workflow intentionally runs on its own file changes.
+      # 2026-08-27: re-run after CLASPRC_JSON secret update.
