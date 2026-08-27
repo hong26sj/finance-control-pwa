@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from 'next'
-import { Manrope, Noto_Sans_KR } from 'next/font/google'
 import { BudgetInteractions } from '@/components/budget-interactions'
 import { FixedSectionInteractions } from '@/components/fixed-section-interactions'
 import { PrivacyRuntime } from '@/components/privacy-runtime'
@@ -9,9 +8,8 @@ import './budget-interactions.css'
 import './preview-baseline.css'
 import './fixed-section-interactions.css'
 import './calendar-position-fix.css'
+import './typography-system.css'
 
-const manrope = Manrope({ subsets: ['latin'], variable: '--font-number' })
-const noto = Noto_Sans_KR({ subsets: ['latin'], variable: '--font-body' })
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ''
 
 export const metadata: Metadata = {
@@ -33,7 +31,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="ko">
-      <body className={`${manrope.variable} ${noto.variable}`}><PrivacyRuntime />{children}<BudgetInteractions /><FixedSectionInteractions /></body>
+      <body><PrivacyRuntime />{children}<BudgetInteractions /><FixedSectionInteractions /></body>
     </html>
   )
 }
