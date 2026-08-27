@@ -4,14 +4,13 @@ import { useEffect } from 'react'
 
 export function FixedSectionInteractions() {
   useEffect(() => {
-    let observer: MutationObserver | null = null
-    let frame = 0
+    let timer: number | undefined
 
     const syncSections = () => {
       const sections = Array.from(document.querySelectorAll<HTMLElement>('.fixed-section'))
       if (!sections.length) return
 
-      const loanTotalText = document.querySelector<HTMLElement>('.metrics article:nth-child(2) b')?.textContent?.trim() || ''
+      const loanTotalText = document.querySelector<HTMLElement>('.metrics article:nth-child(2) b')?.textContent?.trim() || '0원'
 
       sections.forEach((section) => {
         const header = section.querySelector<HTMLElement>(':scope > .section-head')
@@ -32,23 +31,11 @@ export function FixedSectionInteractions() {
           toggle.setAttribute('aria-hidden', 'true')
           toggle.textContent = '⌄'
           header.appendChild(toggle)
-
-          const toggleSection = () => {
-            const collapsed = section.classList.toggle('fixed-collapsed')
-            header.setAttribute('aria-expanded', collapsed ? 'false' : 'true')
-          }
-
-          header.addEventListener('click', toggleSection)
-          header.addEventListener('keydown', (event) => {
-            if (event.key !== 'Enter' && event.key !== ' ') return
-            event.preventDefault()
-            toggleSection()
-          })
         }
 
         if (isDebt) {
           const note = header.querySelector<HTMLElement>('.section-note')
-          if (note && !note.hidden) note.hidden = true
+          if (note) note.hidden = true
 
           let total = header.querySelector<HTMLElement>('.fixed-debt-total')
           if (!total) {
@@ -57,28 +44,54 @@ export function FixedSectionInteractions() {
             const chevron = header.querySelector('.fixed-collapse-chevron')
             header.insertBefore(total, chevron || null)
           }
-          const nextText = loanTotalText || '0원'
-          if (total.textContent !== nextText) total.textContent = nextText
+          if (total.textContent !== loanTotalText) total.textContent = loanTotalText
         }
       })
     }
 
     const scheduleSync = () => {
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() => {
-        observer?.disconnect()
-        syncSections()
-        observer?.observe(document.body, { childList: true, subtree: true })
-      })
+      if (timer !== undefined) window.clearTimeout(timer)
+      timer = window.setTimeout(syncSections, 0)
     }
 
-    syncSections()
-    observer = new MutationObserver(scheduleSync)
-    observer.observe(document.body, { childList: true, subtree: true })
+    const toggleHeader = (header: HTMLElement) => {
+      const section = header.closest<HTMLElement>('.fixed-section.fixed-collapsible')
+      if (!section) return
+      const collapsed = section.classList.toggle('fixed-collapsed')
+      header.setAttribute('aria-expanded', collapsed ? 'false' : 'true')
+    }
+
+    const onClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null
+      const header = target?.closest<HTMLElement>('.fixed-collapse-head')
+      if (header) {
+        if (target?.closest('input,button,a,select,textarea')) return
+        toggleHeader(header)
+        return
+      }
+      scheduleSync()
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      const header = target?.closest<HTMLElement>('.fixed-collapse-head')
+      if (!header || (event.key !== 'Enter' && event.key !== ' ')) return
+      event.preventDefault()
+      toggleHeader(header)
+    }
+
+    const onInput = () => scheduleSync()
+
+    document.addEventListener('click', onClick)
+    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('input', onInput)
+    scheduleSync()
 
     return () => {
-      cancelAnimationFrame(frame)
-      observer?.disconnect()
+      if (timer !== undefined) window.clearTimeout(timer)
+      document.removeEventListener('click', onClick)
+      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('input', onInput)
     }
   }, [])
 
