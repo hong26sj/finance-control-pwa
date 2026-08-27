@@ -129,7 +129,7 @@ export function TransactionBulkInteractions() {
         applyBulkCategory()
         return
       }
-      const all = target?.closest<HTMLInputElement>('[data-bulk-all]')
+      const all = target?.closest('[data-bulk-all]') as HTMLInputElement | null
       if (all) {
         const visible = filteredPending()
         if (all.checked) visible.forEach((row) => selected.add(row.id))
