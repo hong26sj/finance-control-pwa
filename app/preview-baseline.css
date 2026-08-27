@@ -46,12 +46,15 @@
 /* Settings */
 .settings-card{max-width:620px}.connection-state{border-radius:11px}.settings-card p{border-radius:10px}.settings-actions{gap:8px}
 
-/* Calendar — override component-local style to match the approved preview shell */
+/* Calendar — keep the approved calendar proportions. */
 .money-calendar-page{top:var(--preview-header)!important;left:var(--preview-sidebar)!important;min-height:calc(100vh - var(--preview-header))!important;padding:20px 20px 94px!important}
 .money-calendar-page>.page-title,.money-calendar-page>.panel{max-width:1140px!important}
 .calendar-month-total{min-width:155px!important;border-radius:14px!important;padding:11px 13px!important;text-align:right!important}.calendar-month-total b{font-size:18px!important}
 .calendar-panel{padding:14px!important;border-radius:15px!important}.calendar-toolbar{grid-template-columns:38px 1fr 38px auto!important;margin-bottom:10px!important}.calendar-toolbar h2{font-size:17px!important}.calendar-arrow,.calendar-today{height:36px!important;border-radius:8px!important}
 .calendar-weekdays span{padding:6px 0!important;font-size:9px!important}.calendar-cell{min-height:72px!important;padding:6px!important}.calendar-day-number{min-width:24px!important;height:24px!important;border-radius:7px!important}.calendar-cell strong{font-size:9px!important;margin-top:6px!important}.calendar-cell small{font-size:8px!important}.calendar-dots{left:6px!important;bottom:6px!important}.calendar-dots i{width:5px!important;height:5px!important}.calendar-day-panel{margin-top:12px!important;border-radius:15px!important}.calendar-day-list>div{padding:10px 0!important}
+
+/* When the calendar overlay is active, remove the hidden underlying page from layout so it cannot create phantom scroll. */
+.money-calendar-active .app-shell>main .content{display:none!important}
 
 /* Mobile */
 @media(max-width:900px){.hero-grid,.two-col{grid-template-columns:1fr}.metrics{grid-template-columns:1fr}.card-grid{grid-template-columns:1fr}.loan-cards{grid-template-columns:1fr}}
@@ -69,13 +72,7 @@
   .bottom-nav>button span{display:block;font-size:9px!important;line-height:1.15;font-weight:700;white-space:nowrap;margin:0}
   .bottom-nav>button.active{font-weight:800}
 
-  /* Compact calendar: keep the month grid and selected-day detail within a much shorter page. */
-  .money-calendar-page{top:54px!important;left:0!important;min-height:calc(100vh - 54px)!important;padding:10px 8px calc(72px + env(safe-area-inset-bottom))!important}
-  .money-calendar-page>.page-title{margin-bottom:8px!important;display:grid!important;grid-template-columns:1fr auto!important;gap:8px!important;align-items:center!important}
-  .money-calendar-title>div:first-child p{display:none!important}.money-calendar-title h1{font-size:19px!important;margin:3px 0!important}.money-calendar-title .eyebrow{font-size:8px!important}
-  .calendar-month-total{margin:0!important;min-width:112px!important;padding:7px 9px!important;text-align:right!important}.calendar-month-total span,.calendar-month-total small{font-size:7px!important}.calendar-month-total b{font-size:13px!important;margin:2px 0!important}
-  .calendar-panel{padding:7px!important}.calendar-toolbar{grid-template-columns:32px 1fr 32px auto!important;gap:5px!important;margin-bottom:6px!important}.calendar-toolbar>div{gap:5px!important}.calendar-toolbar>div svg{width:14px!important}.calendar-toolbar h2{font-size:14px!important}.calendar-arrow,.calendar-today{height:30px!important;min-height:30px!important}.calendar-today{grid-column:auto!important;padding:0 9px!important;font-size:9px!important}
-  .calendar-weekdays span{font-size:7px!important;padding:4px 0!important}
-  .calendar-cell{min-height:49px!important;height:49px!important;padding:3px!important}.calendar-day-number{min-width:18px!important;height:18px!important;font-size:8px!important;border-radius:5px!important}.calendar-cell strong{font-size:7px!important;margin-top:3px!important;line-height:1!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.calendar-cell small{font-size:6px!important;line-height:1!important;margin-top:1px!important}.calendar-dots{left:3px!important;bottom:3px!important;gap:2px!important}.calendar-dots i{width:4px!important;height:4px!important}
-  .calendar-day-panel{margin-top:7px!important;padding:10px!important;max-height:180px!important;overflow:auto!important}.calendar-day-head{padding-bottom:7px!important}.calendar-day-head h3{font-size:12px!important;margin-top:2px!important}.calendar-day-head>div:last-child b{font-size:12px!important}.calendar-day-head>div:last-child small{font-size:7px!important}.calendar-day-list>div{padding:7px 0!important;gap:7px!important}.calendar-day-list b{font-size:10px!important}.calendar-day-list small{font-size:7px!important}.calendar-day-list strong{font-size:10px!important}.calendar-empty-day{padding:12px 4px!important}
+  /* Restore the calendar itself to the previous approved mobile layout. */
+  .money-calendar-page{top:54px!important;left:0!important;min-height:calc(100vh - 54px)!important;padding:14px 10px calc(78px + env(safe-area-inset-bottom))!important}
+  .money-calendar-title{display:block!important}.calendar-month-total{margin-top:12px!important;text-align:left!important;min-width:0!important}.calendar-panel{padding:10px!important}.calendar-toolbar{grid-template-columns:36px 1fr 36px!important}.calendar-toolbar .calendar-today{grid-column:1/-1!important}.calendar-cell{min-height:62px!important;padding:4px!important}.calendar-day-number{min-width:22px!important;height:22px!important}.calendar-cell strong{font-size:8px!important}.calendar-dots{left:4px!important;bottom:4px!important}.calendar-day-panel{padding:14px!important}
 }
