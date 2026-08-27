@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { CATEGORIES, Transaction, won } from '@/lib/finance'
+import { DEFAULT_APPS_SCRIPT_URL, deleteTransactionMerchant, getTransactionMerchant } from '@/lib/drive-api'
 
 type BudgetSelection = {
   category: string
@@ -26,10 +27,19 @@ function readTransactions() {
   }
 }
 
+function driveAuth() {
+  return {
+    token: localStorage.getItem('flow-drive-token') || '',
+    endpoint: localStorage.getItem('flow-drive-endpoint') || DEFAULT_APPS_SCRIPT_URL,
+  }
+}
+
 export function BudgetInteractions() {
   const [selection, setSelection] = useState<BudgetSelection | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState<DraftRow | null>(null)
+  const [merchantDetail, setMerchantDetail] = useState('')
+  const [merchantLoading, setMerchantLoading] = useState(false)
 
   const openCategory = (category: string) => {
     const cutoff = todayText()
@@ -39,6 +49,7 @@ export function BudgetInteractions() {
       .sort((a, b) => `${b.date}${b.time || ''}`.localeCompare(`${a.date}${a.time || ''}`))
     setEditingId(null)
     setDraft(null)
+    setMerchantDetail('')
     setSelection({ category, rows })
   }
 
@@ -48,20 +59,36 @@ export function BudgetInteractions() {
     window.location.reload()
   }
 
-  const startEditing = (row: Transaction) => {
+  const startEditing = async (row: Transaction) => {
     if (editingId === row.id) {
       setEditingId(null)
       setDraft(null)
+      setMerchantDetail('')
       return
     }
     setEditingId(row.id)
     setDraft({ category: row.category })
+    setMerchantDetail('')
+    const { token, endpoint } = driveAuth()
+    if (!token) {
+      setMerchantDetail('Drive 인증 후 가맹점 정보를 확인할 수 있습니다.')
+      return
+    }
+    setMerchantLoading(true)
+    try {
+      const merchant = await getTransactionMerchant(endpoint, token, row.id)
+      setMerchantDetail(merchant || '저장된 가맹점 정보가 없습니다.')
+    } catch {
+      setMerchantDetail('가맹점 정보를 불러오지 못했습니다.')
+    } finally {
+      setMerchantLoading(false)
+    }
   }
 
   const saveRow = (rowId: string) => {
     if (!draft) return
     const allRows = readTransactions()
-    const nextRows = allRows.map((row) => row.id === rowId ? { ...row, category: draft.category } : row)
+    const nextRows = allRows.map((row) => row.id === rowId ? { ...row, category: draft.category, living: draft.category !== '고정비', fixed: draft.category === '고정비' } : row)
     localStorage.setItem('flow-preview-transactions', JSON.stringify(nextRows))
     returnToCategory()
   }
@@ -70,6 +97,8 @@ export function BudgetInteractions() {
     if (!confirm(`${row.date.slice(5).replace('-', '.')} · ${won(row.amount)} 거래를 삭제할까요?`)) return
     const nextRows = readTransactions().filter((item) => item.id !== row.id)
     localStorage.setItem('flow-preview-transactions', JSON.stringify(nextRows))
+    const { token, endpoint } = driveAuth()
+    if (token) void deleteTransactionMerchant(endpoint, token, row.id).catch(() => undefined)
     returnToCategory()
   }
 
@@ -124,11 +153,12 @@ export function BudgetInteractions() {
       </header>
       <div className="budget-detail-list">
         {selection.rows.length === 0 ? <p className="budget-detail-empty">이 카테고리에 포함된 거래가 없습니다.</p> : selection.rows.map((row) => <div className="budget-detail-item" key={row.id}>
-          <button type="button" className="budget-detail-row" onClick={() => startEditing(row)}>
+          <button type="button" className="budget-detail-row" onClick={() => void startEditing(row)}>
             <span><b>{row.date.replaceAll('-', '.')}</b><small>{row.card}</small></span>
             <strong>{won(row.amount)}</strong>
           </button>
           {editingId === row.id && draft && <div className="budget-row-editor">
+            <div className="budget-merchant-detail"><span>가맹점</span><b>{merchantLoading ? '불러오는 중…' : merchantDetail}</b></div>
             <label>카테고리
               <select value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })}>
                 {CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
