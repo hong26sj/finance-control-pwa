@@ -1,6 +1,8 @@
+'use client'
+
 import { readSheet } from 'read-excel-file/browser'
 import { Transaction } from './finance'
-import { DEFAULT_APPS_SCRIPT_URL, resolveMerchantRules } from './drive-api'
+import { DEFAULT_APPS_SCRIPT_URL, resolveMerchantRules, saveTransactionMerchants } from './drive-api'
 
 type Cell = string | number | boolean | Date | null
 const dateText = (value: Cell) => value instanceof Date ? value.toISOString().slice(0, 10) : String(value ?? '').slice(0, 10).replaceAll('.', '-')
@@ -37,13 +39,15 @@ async function applyLearnedMerchantRules(rows: Transaction[]): Promise<Transacti
   const endpoint = localStorage.getItem('flow-drive-endpoint') || DEFAULT_APPS_SCRIPT_URL
   try {
     const resolutions = await resolveMerchantRules(endpoint, token, rows.map((row) => row.merchant))
-    return rows.map((row, index) => {
+    const resolvedRows = rows.map((row, index) => {
       if (row.cashAdvance) return { ...row, merchant: '현금서비스' }
       const resolved = resolutions[index]
       if (!resolved?.merchantHash) return row
-      if (!resolved.rule) return { ...row, merchantHash: resolved.merchantHash }
-      return applyCategory({ ...row, merchant: resolved.rule.displayName, merchantHash: resolved.merchantHash }, resolved.rule.category)
+      if (!resolved.rule || resolved.rule.ambiguous || !resolved.rule.category) return { ...row, merchantHash: resolved.merchantHash }
+      return applyCategory({ ...row, merchantHash: resolved.merchantHash }, resolved.rule.category)
     })
+    await saveTransactionMerchants(endpoint, token, resolvedRows.map((row) => ({ id: row.id, merchant: row.merchant, merchantHash: row.merchantHash, category: row.category })))
+    return resolvedRows
   } catch {
     return rows
   }
