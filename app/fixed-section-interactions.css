@@ -30,4 +30,33 @@
   .fixed-debt-total,.fixed-section.fixed-collapsible>.section-head>b:not(.fixed-debt-total){font-size:12px}
   .fixed-collapse-chevron{flex-basis:22px;width:22px;height:22px}
   .fixed-collapse-chevron::after{width:7px;height:7px;border-right-width:2px;border-bottom-width:2px}
+
+  /* Insurance / housing / communication / savings: fit all four fields inside the card with no horizontal scrolling. */
+  .fixed-detail-table{overflow-x:visible!important;width:100%!important;max-width:100%!important;min-width:0!important}
+  .fixed-detail-table>div{min-width:0!important;width:100%!important;grid-template-columns:minmax(0,1.15fr) minmax(0,.8fr) minmax(0,.65fr) minmax(0,.65fr)!important;gap:5px!important;padding:8px 0!important}
+  .fixed-detail-table>div:first-child{padding:8px 6px!important}
+  .fixed-detail-table span{min-width:0!important;overflow-wrap:anywhere;word-break:keep-all}
+  .fixed-detail-table span b{font-size:9px!important}
+  .fixed-detail-table input{min-width:0!important;width:100%!important;max-width:100%!important;padding:7px 5px!important}
+
+  /* Loan editor: avoid iOS intrinsic date-input width pushing outside the card. */
+  .loan-values,.rate-change{min-width:0!important;width:100%!important;max-width:100%!important}
+  .loan-values label,.rate-change label{min-width:0!important;width:100%!important;max-width:100%!important}
+  .rate-change{grid-template-columns:1fr!important;gap:8px!important}
+  .rate-change .secondary{grid-column:1!important;width:100%!important;justify-content:center!important}
+  .loan-values input,.rate-change input,.fixed-detail-table input{
+    box-sizing:border-box!important;
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+    min-inline-size:0!important;
+    max-inline-size:100%!important;
+    -webkit-min-logical-width:0!important;
+    font-size:16px!important;
+  }
+  .rate-change input[type='date']{
+    -webkit-appearance:none!important;
+    appearance:none!important;
+    inline-size:100%!important;
+  }
 }
