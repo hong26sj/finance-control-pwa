@@ -8,7 +8,7 @@ export type Transaction = {
   cashFlow: boolean; cashAdvance?: boolean; source: string; memo: string
   merchantHash?: string
 }
-export type MerchantRule = { displayName: string; category: string }
+export type MerchantRule = { category: string; ambiguous: boolean; categories: string[] }
 export type RatePoint = { effectiveDate: string; rate: number }
 export type Loan = {
   id: string; name: string; originalPrincipal: number; balance: number; rate: number
