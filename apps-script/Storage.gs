@@ -1,10 +1,9 @@
 function defaultSnapshot_() {
   return {
     version: 1,
-    privacyVersion: 3,
+    privacyVersion: 4,
     updatedAt: new Date().toISOString(),
     transactions: [],
-    merchantRules: {},
     loans: [],
     fixedPlans: [],
     settings: { weeklyBase: 0, livingCap: 0, monthlyPaceTarget: 0, salary: 0, cardTarget: 0, categoryBudgets: {} },
@@ -12,51 +11,33 @@ function defaultSnapshot_() {
   };
 }
 
-function sanitizeMerchantRule_(rule) {
-  rule = rule || {};
-  return {
-    displayName: String(rule.displayName || '').trim().slice(0, 120),
-    category: String(rule.category || '미분류').trim().slice(0, 80)
-  };
-}
-
-function sanitizeMerchantRules_(rules) {
-  var clean = {};
-  if (!rules || typeof rules !== 'object') return clean;
-  Object.keys(rules).forEach(function (hash) {
-    if (!/^[a-f0-9]{64}$/i.test(hash)) return;
-    var rule = sanitizeMerchantRule_(rules[hash]);
-    if (rule.displayName && rule.category && rule.category !== '미분류') clean[hash.toLowerCase()] = rule;
-  });
-  return clean;
+function defaultMerchantVault_() {
+  return { version: 1, transactions: {} };
 }
 
 function sanitizeTransaction_(item) {
   item = item || {};
   var hash = String(item.merchantHash || '').toLowerCase();
-  var category = String(item.category || '미분류');
   return {
     id: String(item.id || Utilities.getUuid()),
     date: String(item.date || ''),
     card: String(item.card || ''),
     amount: Number(item.amount || 0),
-    category: category,
+    category: String(item.category || '미분류'),
     living: item.living !== false,
     fixed: item.fixed === true,
     performanceIncluded: item.performanceIncluded !== false,
     cashFlow: item.cashFlow === true,
-    merchantHash: /^[a-f0-9]{64}$/.test(hash) ? hash : '',
-    merchant: category === '미분류' ? String(item.merchant || '').trim().slice(0, 160) : ''
+    merchantHash: /^[a-f0-9]{64}$/.test(hash) ? hash : ''
   };
 }
 
 function sanitizeSnapshot_(snapshot) {
   return {
     version: Number(snapshot && snapshot.version || 0),
-    privacyVersion: 3,
+    privacyVersion: 4,
     updatedAt: String(snapshot && snapshot.updatedAt || ''),
     transactions: Array.isArray(snapshot && snapshot.transactions) ? snapshot.transactions.map(sanitizeTransaction_) : [],
-    merchantRules: sanitizeMerchantRules_(snapshot && snapshot.merchantRules),
     loans: Array.isArray(snapshot && snapshot.loans) ? snapshot.loans : [],
     fixedPlans: Array.isArray(snapshot && snapshot.fixedPlans) ? snapshot.fixedPlans : [],
     settings: snapshot && snapshot.settings && typeof snapshot.settings === 'object' ? snapshot.settings : defaultSnapshot_().settings,
@@ -67,7 +48,6 @@ function sanitizeSnapshot_(snapshot) {
 function validateSnapshot_(snapshot) {
   if (!snapshot || !Array.isArray(snapshot.transactions) || !Array.isArray(snapshot.loans) || !Array.isArray(snapshot.fixedPlans)) throw new Error('INVALID_SNAPSHOT');
   if (!snapshot.settings || typeof snapshot.settings !== 'object') throw new Error('INVALID_SETTINGS');
-  if (!snapshot.merchantRules || typeof snapshot.merchantRules !== 'object') throw new Error('INVALID_MERCHANT_RULES');
   if (JSON.stringify(snapshot).length > 9000000) throw new Error('SNAPSHOT_TOO_LARGE');
 }
 
@@ -91,6 +71,129 @@ function financeFolder_() {
   return folder;
 }
 
+function merchantVaultFile_() {
+  var properties = PropertiesService.getScriptProperties();
+  var id = properties.getProperty('MERCHANT_VAULT_FILE_ID') || '';
+  if (id) {
+    try { return DriveApp.getFileById(id); } catch (_) {}
+  }
+  merchantVaultKey_();
+  var folder = financeFolder_();
+  var file = folder.createFile('merchant-vault.enc', encryptVaultText_(JSON.stringify(defaultMerchantVault_())), MimeType.PLAIN_TEXT);
+  properties.setProperty('MERCHANT_VAULT_FILE_ID', file.getId());
+  return file;
+}
+
+function readMerchantVault_() {
+  var text = merchantVaultFile_().getBlob().getDataAsString('UTF-8');
+  if (!text) return defaultMerchantVault_();
+  var parsed = JSON.parse(decryptVaultText_(text));
+  if (!parsed || typeof parsed !== 'object') return defaultMerchantVault_();
+  if (!parsed.transactions || typeof parsed.transactions !== 'object') parsed.transactions = {};
+  return parsed;
+}
+
+function writeMerchantVault_(vault) {
+  vault = vault || defaultMerchantVault_();
+  vault.version = 1;
+  merchantVaultFile_().setContent(encryptVaultText_(JSON.stringify(vault)));
+  return vault;
+}
+
+function merchantRuleForHash_(vault, hash) {
+  var categories = {};
+  Object.keys(vault.transactions || {}).forEach(function (id) {
+    var item = vault.transactions[id] || {};
+    if (String(item.merchantHash || '') !== hash) return;
+    var category = String(item.category || '');
+    if (category && category !== '미분류') categories[category] = true;
+  });
+  var list = Object.keys(categories).sort();
+  if (!list.length) return null;
+  return { category: list.length === 1 ? list[0] : '', ambiguous: list.length > 1, categories: list };
+}
+
+function saveTransactionMerchants_(items) {
+  items = Array.isArray(items) ? items.slice(0, 1000) : [];
+  if (!items.length) return { saved: 0 };
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var vault = readMerchantVault_();
+    var saved = 0;
+    items.forEach(function (item) {
+      item = item || {};
+      var id = String(item.id || '').trim();
+      var merchant = String(item.merchant || '').trim().slice(0, 200);
+      if (!id || !merchant) return;
+      var hash = String(item.merchantHash || '').toLowerCase();
+      if (!/^[a-f0-9]{64}$/.test(hash)) hash = merchantFingerprint_(merchant);
+      var previous = vault.transactions[id] || {};
+      vault.transactions[id] = {
+        merchant: merchant,
+        merchantHash: hash,
+        category: String(item.category || previous.category || '미분류').slice(0, 80)
+      };
+      saved += 1;
+    });
+    writeMerchantVault_(vault);
+    return { saved: saved };
+  } finally { lock.releaseLock(); }
+}
+
+function getTransactionMerchant_(transactionId) {
+  var id = String(transactionId || '').trim();
+  if (!id) throw new Error('TRANSACTION_ID_REQUIRED');
+  var vault = readMerchantVault_();
+  var item = vault.transactions[id] || {};
+  return String(item.merchant || '');
+}
+
+function deleteTransactionMerchant_(transactionId) {
+  var id = String(transactionId || '').trim();
+  if (!id) return { ok: true };
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var vault = readMerchantVault_();
+    delete vault.transactions[id];
+    writeMerchantVault_(vault);
+    return { ok: true };
+  } finally { lock.releaseLock(); }
+}
+
+function resolveMerchantRules_(merchants) {
+  var vault = readMerchantVault_();
+  return (Array.isArray(merchants) ? merchants : []).slice(0, 1000).map(function (merchant) {
+    var raw = String(merchant || '');
+    if (!raw.trim()) return { merchant: raw, merchantHash: '', rule: null };
+    var hash = merchantFingerprint_(raw);
+    return { merchant: raw, merchantHash: hash, rule: merchantRuleForHash_(vault, hash) };
+  });
+}
+
+function saveMerchantRule_(transactionId, rawMerchant, merchantHash, category) {
+  var id = String(transactionId || '').trim();
+  var cat = String(category || '').trim();
+  if (!id) throw new Error('TRANSACTION_ID_REQUIRED');
+  if (!cat || cat === '미분류') throw new Error('CATEGORY_REQUIRED');
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var vault = readMerchantVault_();
+    var previous = vault.transactions[id] || {};
+    var merchant = String(rawMerchant || previous.merchant || '').trim().slice(0, 200);
+    var hash = String(merchantHash || previous.merchantHash || '').toLowerCase();
+    if (!/^[a-f0-9]{64}$/.test(hash)) {
+      if (!merchant) throw new Error('MERCHANT_REQUIRED');
+      hash = merchantFingerprint_(merchant);
+    }
+    vault.transactions[id] = { merchant: merchant, merchantHash: hash, category: cat };
+    writeMerchantVault_(vault);
+    return { merchantHash: hash, rule: merchantRuleForHash_(vault, hash) };
+  } finally { lock.releaseLock(); }
+}
+
 function organizeFinanceStorage() {
   var properties = PropertiesService.getScriptProperties();
   var fileId = properties.getProperty('FINANCE_DATA_FILE_ID') || '';
@@ -100,13 +203,18 @@ function organizeFinanceStorage() {
   var file = DriveApp.getFileById(fileId);
   file.moveTo(folder);
   merchantHmacSecret_();
+  merchantVaultKey_();
+  var vaultFile = merchantVaultFile_();
+  vaultFile.moveTo(folder);
 
   return {
     ok: true,
     folderId: folder.getId(),
     folderName: folder.getName(),
     fileId: file.getId(),
-    fileName: file.getName()
+    fileName: file.getName(),
+    merchantVaultFileId: vaultFile.getId(),
+    merchantVaultFileName: vaultFile.getName()
   };
 }
 
@@ -115,45 +223,38 @@ function readSnapshot_() {
   return text ? sanitizeSnapshot_(JSON.parse(text)) : defaultSnapshot_();
 }
 
+function readSnapshotForClient_() {
+  var snapshot = readSnapshot_();
+  var vault = readMerchantVault_();
+  snapshot.transactions = snapshot.transactions.map(function (item) {
+    var merchant = vault.transactions[item.id] && vault.transactions[item.id].merchant;
+    if (!merchant) return item;
+    var copy = {};
+    Object.keys(item).forEach(function (key) { copy[key] = item[key]; });
+    copy.merchant = merchant;
+    return copy;
+  });
+  return snapshot;
+}
+
 function saveSnapshot_(snapshot) {
-  var current = readSnapshot_();
   var incoming = snapshot || {};
-  if (!incoming.merchantRules) incoming.merchantRules = current.merchantRules || {};
+  if (Array.isArray(incoming.transactions)) {
+    saveTransactionMerchants_(incoming.transactions.map(function (item) {
+      return { id: item.id, merchant: item.merchant, merchantHash: item.merchantHash, category: item.category };
+    }));
+  }
   var clean = sanitizeSnapshot_(incoming);
   validateSnapshot_(clean);
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
+    var current = readSnapshot_();
     clean.version = Number(current.version || 0) + 1;
     clean.updatedAt = new Date().toISOString();
     dataFile_().setContent(JSON.stringify(clean));
     return clean;
   } finally { lock.releaseLock(); }
-}
-
-function resolveMerchantRules_(merchants) {
-  var current = readSnapshot_();
-  var rules = current.merchantRules || {};
-  return (Array.isArray(merchants) ? merchants : []).slice(0, 1000).map(function (merchant) {
-    var raw = String(merchant || '');
-    if (!raw.trim()) return { merchant: raw, merchantHash: '', rule: null };
-    var hash = merchantFingerprint_(raw);
-    return { merchant: raw, merchantHash: hash, rule: rules[hash] || null };
-  });
-}
-
-function saveMerchantRule_(rawMerchant, merchantHash, displayName, category) {
-  var name = String(displayName || '').trim();
-  var cat = String(category || '').trim();
-  if (!name) throw new Error('DISPLAY_NAME_REQUIRED');
-  if (!cat || cat === '미분류') throw new Error('CATEGORY_REQUIRED');
-  var hash = String(merchantHash || '').toLowerCase();
-  if (!/^[a-f0-9]{64}$/.test(hash)) hash = merchantFingerprint_(rawMerchant);
-  var current = readSnapshot_();
-  current.merchantRules = current.merchantRules || {};
-  current.merchantRules[hash] = sanitizeMerchantRule_({ displayName: name, category: cat });
-  var saved = saveSnapshot_(current);
-  return { merchantHash: hash, rule: saved.merchantRules[hash] };
 }
 
 function purgeStoredTransactionDetails() {
@@ -167,8 +268,10 @@ function setupFinanceStorage(folderId, accessToken) {
   var properties = PropertiesService.getScriptProperties();
   var existingId = properties.getProperty('FINANCE_DATA_FILE_ID');
   merchantHmacSecret_();
+  merchantVaultKey_();
   if (existingId) {
     properties.setProperty('ACCESS_TOKEN_HASH', sha256Hex_(String(accessToken)));
+    merchantVaultFile_();
     return { fileId: existingId, fileName: DriveApp.getFileById(existingId).getName(), reused: true };
   }
 
@@ -182,6 +285,7 @@ function setupFinanceStorage(folderId, accessToken) {
 
   var file = folder.createFile('flow-finance-data.json', JSON.stringify(defaultSnapshot_()), MimeType.PLAIN_TEXT);
   properties.setProperties({ FINANCE_DATA_FILE_ID: file.getId(), ACCESS_TOKEN_HASH: sha256Hex_(String(accessToken)) }, false);
+  merchantVaultFile_();
   return { fileId: file.getId(), fileName: file.getName(), folderId: folder.getId(), reused: false };
 }
 
