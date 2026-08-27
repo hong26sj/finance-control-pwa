@@ -5,6 +5,7 @@ import { Transaction } from './finance'
 import { DEFAULT_APPS_SCRIPT_URL, resolveMerchantRules, saveTransactionMerchants } from './drive-api'
 
 type Cell = string | number | boolean | Date | null
+const PENDING_MERCHANTS_KEY = 'flow-pending-merchants'
 const dateText = (value: Cell) => value instanceof Date ? value.toISOString().slice(0, 10) : String(value ?? '').slice(0, 10).replaceAll('.', '-')
 const timeText = (value: Cell) => {
   if (value instanceof Date) return value.toTimeString().slice(0, 5)
@@ -32,10 +33,27 @@ function applyCategory(row: Transaction, category: string) {
   }
 }
 
+function rememberPendingMerchants(rows: Transaction[]) {
+  if (typeof window === 'undefined') return
+  try {
+    const saved = JSON.parse(localStorage.getItem(PENDING_MERCHANTS_KEY) || '{}') as Record<string, string>
+    rows.forEach((row) => {
+      if (row.category === '미분류' && row.merchant) saved[row.id] = row.merchant
+      else delete saved[row.id]
+    })
+    localStorage.setItem(PENDING_MERCHANTS_KEY, JSON.stringify(saved))
+  } catch {
+    // Transaction import should still succeed if the local backup cannot be updated.
+  }
+}
+
 async function applyLearnedMerchantRules(rows: Transaction[]): Promise<Transaction[]> {
   if (typeof window === 'undefined' || !rows.length) return rows
   const token = localStorage.getItem('flow-drive-token') || ''
-  if (!token) return rows
+  if (!token) {
+    rememberPendingMerchants(rows)
+    return rows
+  }
   const endpoint = localStorage.getItem('flow-drive-endpoint') || DEFAULT_APPS_SCRIPT_URL
   try {
     const resolutions = await resolveMerchantRules(endpoint, token, rows.map((row) => row.merchant))
@@ -50,9 +68,11 @@ async function applyLearnedMerchantRules(rows: Transaction[]): Promise<Transacti
         merchantCategoryAmbiguous: resolved.rule.ambiguous === true,
       }, resolved.rule.category)
     })
+    rememberPendingMerchants(resolvedRows)
     await saveTransactionMerchants(endpoint, token, resolvedRows.map((row) => ({ id: row.id, merchant: row.merchant, merchantHash: row.merchantHash, category: row.category })))
     return resolvedRows
   } catch {
+    rememberPendingMerchants(rows)
     return rows
   }
 }
