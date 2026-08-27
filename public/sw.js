@@ -1,4 +1,4 @@
-const CACHE = 'flow-shell-v11'
+const CACHE = 'flow-shell-v12'
 const ROOT = new URL('./', self.registration.scope).pathname
 const SHELL = [ROOT, `${ROOT}offline/`, `${ROOT}manifest.webmanifest`, `${ROOT}icon.svg`]
 
@@ -22,7 +22,7 @@ self.addEventListener('fetch', event => {
   const request = event.request
   if (request.method !== 'GET') return
 
-  const url = new URL(request.url)
+  const url = new URL(event.request.url)
   if (url.origin !== self.location.origin) return
 
   const isAppFile =
