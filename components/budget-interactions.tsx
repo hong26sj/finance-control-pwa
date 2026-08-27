@@ -9,7 +9,6 @@ type BudgetSelection = {
 }
 
 type DraftRow = {
-  merchant: string
   category: string
 }
 
@@ -56,24 +55,19 @@ export function BudgetInteractions() {
       return
     }
     setEditingId(row.id)
-    setDraft({ merchant: row.merchant || '', category: row.category })
+    setDraft({ category: row.category })
   }
 
   const saveRow = (rowId: string) => {
     if (!draft) return
-    const merchant = draft.merchant.trim()
-    if (!merchant) {
-      alert('내역 이름을 입력하세요.')
-      return
-    }
     const allRows = readTransactions()
-    const nextRows = allRows.map((row) => row.id === rowId ? { ...row, merchant, category: draft.category } : row)
+    const nextRows = allRows.map((row) => row.id === rowId ? { ...row, category: draft.category } : row)
     localStorage.setItem('flow-preview-transactions', JSON.stringify(nextRows))
     returnToCategory()
   }
 
   const deleteRow = (row: Transaction) => {
-    if (!confirm(`'${row.merchant || '이 거래'}' 내역을 삭제할까요?`)) return
+    if (!confirm(`${row.date.slice(5).replace('-', '.')} · ${won(row.amount)} 거래를 삭제할까요?`)) return
     const nextRows = readTransactions().filter((item) => item.id !== row.id)
     localStorage.setItem('flow-preview-transactions', JSON.stringify(nextRows))
     returnToCategory()
@@ -131,13 +125,10 @@ export function BudgetInteractions() {
       <div className="budget-detail-list">
         {selection.rows.length === 0 ? <p className="budget-detail-empty">이 카테고리에 포함된 거래가 없습니다.</p> : selection.rows.map((row) => <div className="budget-detail-item" key={row.id}>
           <button type="button" className="budget-detail-row" onClick={() => startEditing(row)}>
-            <span><b>{row.merchant || '가맹점 정보 없음'}</b><small>{row.date.slice(5).replace('-', '.')} · {row.card}</small></span>
+            <span><b>{row.date.replaceAll('-', '.')}</b><small>{row.card}</small></span>
             <strong>{won(row.amount)}</strong>
           </button>
           {editingId === row.id && draft && <div className="budget-row-editor">
-            <label>내역 이름
-              <input value={draft.merchant} onChange={(event) => setDraft({ ...draft, merchant: event.target.value })} placeholder="가맹점명 또는 내역 이름" />
-            </label>
             <label>카테고리
               <select value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })}>
                 {CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
