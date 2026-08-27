@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { CATEGORIES, Transaction, won } from '@/lib/finance'
-import { DEFAULT_APPS_SCRIPT_URL, deleteTransactionMerchant, getTransactionMerchant } from '@/lib/drive-api'
+import { DEFAULT_APPS_SCRIPT_URL, deleteTransactionMerchant, getTransactionMerchant, saveMerchantRule } from '@/lib/drive-api'
 
 type BudgetSelection = {
   category: string
@@ -40,6 +40,7 @@ export function BudgetInteractions() {
   const [draft, setDraft] = useState<DraftRow | null>(null)
   const [merchantDetail, setMerchantDetail] = useState('')
   const [merchantLoading, setMerchantLoading] = useState(false)
+  const [confirmingId, setConfirmingId] = useState<string | null>(null)
 
   const openCategory = (category: string) => {
     const cutoff = todayText()
@@ -85,12 +86,62 @@ export function BudgetInteractions() {
     }
   }
 
-  const saveRow = (rowId: string) => {
+  const saveRow = async (rowId: string) => {
     if (!draft) return
     const allRows = readTransactions()
-    const nextRows = allRows.map((row) => row.id === rowId ? { ...row, category: draft.category, living: draft.category !== '고정비', fixed: draft.category === '고정비' } : row)
+    const current = allRows.find((row) => row.id === rowId)
+    if (!current) return
+    const nextRows = allRows.map((row) => row.id === rowId ? {
+      ...row,
+      category: draft.category,
+      living: draft.category !== '고정비',
+      fixed: draft.category === '고정비',
+      merchantCategoryAmbiguous: false,
+    } : row)
     localStorage.setItem('flow-preview-transactions', JSON.stringify(nextRows))
-    returnToCategory()
+
+    const { token, endpoint } = driveAuth()
+    if (token && draft.category !== '미분류') {
+      try {
+        await saveMerchantRule(endpoint, token, {
+          transactionId: current.id,
+          rawMerchant: current.merchant || merchantDetail || undefined,
+          merchantHash: current.merchantHash,
+          category: draft.category,
+        })
+      } catch {
+        // Local category edit remains valid even if rule sync is temporarily unavailable.
+      }
+    }
+    returnToCategory(draft.category)
+  }
+
+  const confirmAutoCategory = async (row: Transaction) => {
+    const { token, endpoint } = driveAuth()
+    if (!token) {
+      alert('Drive 인증 후 자동분류를 확정할 수 있습니다.')
+      return
+    }
+    setConfirmingId(row.id)
+    try {
+      await saveMerchantRule(endpoint, token, {
+        transactionId: row.id,
+        rawMerchant: row.merchant || merchantDetail || undefined,
+        merchantHash: row.merchantHash,
+        category: row.category,
+      })
+      const nextRows = readTransactions().map((item) => item.id === row.id ? {
+        ...item,
+        merchantCategoryAmbiguous: false,
+        merchantCategoryConfirmed: true,
+      } : item)
+      localStorage.setItem('flow-preview-transactions', JSON.stringify(nextRows))
+      returnToCategory(row.category)
+    } catch {
+      alert('분류 확정에 실패했습니다. Drive 연결 상태를 확인해주세요.')
+    } finally {
+      setConfirmingId(null)
+    }
   }
 
   const deleteRow = (row: Transaction) => {
@@ -152,9 +203,9 @@ export function BudgetInteractions() {
         <button type="button" onClick={() => setSelection(null)} aria-label="닫기">×</button>
       </header>
       <div className="budget-detail-list">
-        {selection.rows.length === 0 ? <p className="budget-detail-empty">이 카테고리에 포함된 거래가 없습니다.</p> : selection.rows.map((row) => <div className={`budget-detail-item${row.merchantCategoryAmbiguous ? ' budget-detail-item-ambiguous' : ''}`} key={row.id}>
+        {selection.rows.length === 0 ? <p className="budget-detail-empty">이 카테고리에 포함된 거래가 없습니다.</p> : selection.rows.map((row) => <div className={`budget-detail-item${row.merchantCategoryAmbiguous ? ' budget-detail-item-ambiguous' : ''}${row.merchantCategoryConfirmed ? ' budget-detail-item-confirmed' : ''}`} key={row.id}>
           <button type="button" className="budget-detail-row" onClick={() => void startEditing(row)}>
-            <span><b>{row.date.replaceAll('-', '.')}</b><small>{row.card}{row.merchantCategoryAmbiguous && <em>복수 분류 이력</em>}</small></span>
+            <span><b>{row.date.replaceAll('-', '.')}</b><small>{row.card}{row.merchantCategoryAmbiguous && <em>자동분류 확인필요</em>}{row.merchantCategoryConfirmed && <em className="confirmed">분류 확정</em>}</small></span>
             <strong>{won(row.amount)}</strong>
           </button>
           {editingId === row.id && draft && <div className="budget-row-editor">
@@ -164,9 +215,12 @@ export function BudgetInteractions() {
                 {CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
               </select>
             </label>
+            {row.merchantCategoryAmbiguous && <button type="button" className="budget-confirm-button" disabled={confirmingId === row.id} onClick={() => void confirmAutoCategory(row)}>
+              {confirmingId === row.id ? '확정 중…' : `현재 분류(${row.category}) 확정`}
+            </button>}
             <div className="budget-row-actions">
               <button type="button" className="budget-delete-button" onClick={() => deleteRow(row)}>삭제</button>
-              <button type="button" className="budget-save-button" onClick={() => saveRow(row.id)}>변경 저장</button>
+              <button type="button" className="budget-save-button" onClick={() => void saveRow(row.id)}>변경 저장</button>
             </div>
           </div>}
         </div>)}
