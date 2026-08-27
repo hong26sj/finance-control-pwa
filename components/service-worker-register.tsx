@@ -17,8 +17,14 @@ export function ServiceWorkerRegister() {
         const saved = JSON.parse(localStorage.getItem(PENDING_MERCHANTS_KEY) || '{}') as Record<string, string>
         rows.forEach((row) => {
           if (!row.id) return
-          if (row.category === '미분류' && row.merchant) saved[row.id] = row.merchant
-          else delete saved[row.id]
+          if (row.category === '미분류') {
+            // Never erase an already remembered merchant merely because a Drive/privacy
+            // restore temporarily produced a blank merchant field. The name should remain
+            // available until this transaction is actually classified.
+            if (row.merchant) saved[row.id] = row.merchant
+          } else {
+            delete saved[row.id]
+          }
         })
         localStorage.setItem(PENDING_MERCHANTS_KEY, JSON.stringify(saved))
       } catch {
@@ -43,12 +49,14 @@ export function ServiceWorkerRegister() {
       }
     }
 
-    if (restorePendingMerchants() && sessionStorage.getItem('flow-pending-merchant-restored') !== '1') {
+    const restoreAndReloadOnce = () => {
+      if (!restorePendingMerchants()) return
+      if (sessionStorage.getItem('flow-pending-merchant-restored') === '1') return
       sessionStorage.setItem('flow-pending-merchant-restored', '1')
       window.setTimeout(() => window.location.reload(), 0)
-    } else {
-      sessionStorage.removeItem('flow-pending-merchant-restored')
     }
+
+    restoreAndReloadOnce()
 
     const checkForUpdate = () => registration?.update().catch(() => undefined)
     const onControllerChange = () => {
@@ -57,11 +65,24 @@ export function ServiceWorkerRegister() {
       window.location.reload()
     }
     const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') checkForUpdate()
-      else rememberPendingMerchants()
+      if (document.visibilityState === 'visible') {
+        restoreAndReloadOnce()
+        checkForUpdate()
+      } else {
+        rememberPendingMerchants()
+      }
     }
-    const onPageShow = () => checkForUpdate()
+    const onPageShow = () => {
+      restoreAndReloadOnce()
+      checkForUpdate()
+    }
     const onPageHide = () => rememberPendingMerchants()
+
+    // Keep a live copy while the classification inbox is open. This avoids relying on
+    // iOS Safari/PWA pagehide timing when the app is terminated from the app switcher.
+    const merchantBackupTimer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') rememberPendingMerchants()
+    }, 500)
 
     if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
       const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ''
@@ -105,6 +126,7 @@ export function ServiceWorkerRegister() {
     document.addEventListener('click', applyCurrentTime)
     return () => {
       rememberPendingMerchants()
+      window.clearInterval(merchantBackupTimer)
       document.removeEventListener('click', applyCurrentTime)
       navigator.serviceWorker?.removeEventListener('controllerchange', onControllerChange)
       document.removeEventListener('visibilitychange', onVisibilityChange)
