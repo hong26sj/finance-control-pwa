@@ -4,6 +4,9 @@ import { useEffect } from 'react'
 
 export function FixedSectionInteractions() {
   useEffect(() => {
+    let observer: MutationObserver | null = null
+    let frame = 0
+
     const syncSections = () => {
       const sections = Array.from(document.querySelectorAll<HTMLElement>('.fixed-section'))
       if (!sections.length) return
@@ -45,7 +48,7 @@ export function FixedSectionInteractions() {
 
         if (isDebt) {
           const note = header.querySelector<HTMLElement>('.section-note')
-          if (note) note.hidden = true
+          if (note && !note.hidden) note.hidden = true
 
           let total = header.querySelector<HTMLElement>('.fixed-debt-total')
           if (!total) {
@@ -54,15 +57,29 @@ export function FixedSectionInteractions() {
             const chevron = header.querySelector('.fixed-collapse-chevron')
             header.insertBefore(total, chevron || null)
           }
-          total.textContent = loanTotalText || '0원'
+          const nextText = loanTotalText || '0원'
+          if (total.textContent !== nextText) total.textContent = nextText
         }
       })
     }
 
+    const scheduleSync = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        observer?.disconnect()
+        syncSections()
+        observer?.observe(document.body, { childList: true, subtree: true })
+      })
+    }
+
     syncSections()
-    const observer = new MutationObserver(syncSections)
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true })
-    return () => observer.disconnect()
+    observer = new MutationObserver(scheduleSync)
+    observer.observe(document.body, { childList: true, subtree: true })
+
+    return () => {
+      cancelAnimationFrame(frame)
+      observer?.disconnect()
+    }
   }, [])
 
   return null
