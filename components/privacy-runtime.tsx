@@ -66,7 +66,9 @@ export function PrivacyRuntime() {
           void persistRule(row.id, { transactionId: row.id, rawMerchant: rawMerchant || undefined, merchantHash: row.merchantHash, category: row.category })
         }
 
-        return { ...row, merchant: '' }
+        // The classification inbox must retain the raw merchant name across PWA restarts.
+        // Once classified, continue removing the merchant from the local transaction snapshot.
+        return { ...row, merchant: row.category === '미분류' ? rawMerchant : '' }
       })
       window.setTimeout(() => void persistMerchants(), 0)
       return JSON.stringify(sanitized)
