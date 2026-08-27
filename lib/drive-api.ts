@@ -2,7 +2,7 @@ import { FinanceSettings, FixedPlan, Loan, MerchantRule, Transaction } from './f
 
 export const DEFAULT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwmsy16Y7h9Js_4kY7qCscrQYuvWCm_DUAwOIO3-k9is1xWnOC72SHkWKPK8jOFc7bPDg/exec'
 
-export type DriveTransaction = Pick<Transaction, 'id' | 'date' | 'card' | 'amount' | 'category' | 'living' | 'fixed' | 'performanceIncluded' | 'cashFlow' | 'merchantHash'> & { displayName?: string }
+export type DriveTransaction = Pick<Transaction, 'id' | 'date' | 'card' | 'amount' | 'category' | 'living' | 'fixed' | 'performanceIncluded' | 'cashFlow' | 'merchantHash'> & { merchant?: string; displayName?: string }
 export type FinanceSnapshot = { version?: number; privacyVersion?: number; updatedAt?: string; transactions: DriveTransaction[]; loans: Loan[]; fixedPlans: FixedPlan[]; settings: FinanceSettings; cashFlow: number; merchantRules?: Record<string, MerchantRule> }
 export type MerchantResolution = { merchant: string; merchantHash: string; rule?: MerchantRule }
 
@@ -26,7 +26,7 @@ export const privateTransactionsForDrive = (items: Transaction[]): DriveTransact
   performanceIncluded: item.performanceIncluded,
   cashFlow: item.cashFlow,
   merchantHash: item.merchantHash,
-  displayName: item.category === '미분류' ? '' : item.merchant,
+  merchant: item.category === '미분류' ? item.merchant : undefined,
 }))
 
 export const restoreDriveTransactions = (items: DriveTransaction[], localItems: Transaction[] = []): Transaction[] => {
@@ -36,7 +36,7 @@ export const restoreDriveTransactions = (items: DriveTransaction[], localItems: 
     return {
       ...item,
       time: local?.time || '',
-      merchant: item.displayName || (item.category === '미분류' ? local?.merchant || '' : ''),
+      merchant: item.category === '미분류' ? (item.merchant || local?.merchant || '') : '',
       source: local?.source || 'Drive 요약',
       memo: local?.memo || '',
       cashAdvance: local?.cashAdvance,
