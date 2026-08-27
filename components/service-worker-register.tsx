@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
+import { MoneyCalendar } from './money-calendar'
 
 export function ServiceWorkerRegister() {
   useEffect(() => {
@@ -29,5 +30,5 @@ export function ServiceWorkerRegister() {
     document.addEventListener('click', applyCurrentTime)
     return () => document.removeEventListener('click', applyCurrentTime)
   }, [])
-  return null
+  return <MoneyCalendar />
 }
