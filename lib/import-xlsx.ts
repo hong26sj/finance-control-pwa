@@ -44,7 +44,11 @@ async function applyLearnedMerchantRules(rows: Transaction[]): Promise<Transacti
       const resolved = resolutions[index]
       if (!resolved?.merchantHash) return row
       if (!resolved.rule?.category) return { ...row, merchantHash: resolved.merchantHash }
-      return applyCategory({ ...row, merchantHash: resolved.merchantHash }, resolved.rule.category)
+      return applyCategory({
+        ...row,
+        merchantHash: resolved.merchantHash,
+        merchantCategoryAmbiguous: resolved.rule.ambiguous === true,
+      }, resolved.rule.category)
     })
     await saveTransactionMerchants(endpoint, token, resolvedRows.map((row) => ({ id: row.id, merchant: row.merchant, merchantHash: row.merchantHash, category: row.category })))
     return resolvedRows
