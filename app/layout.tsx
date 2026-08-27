@@ -7,6 +7,7 @@ import './globals.css'
 import './mobile-fixes.css'
 import './budget-interactions.css'
 import './preview-baseline.css'
+import './fixed-section-interactions.css'
 
 const manrope = Manrope({ subsets: ['latin'], variable: '--font-number' })
 const noto = Noto_Sans_KR({ subsets: ['latin'], variable: '--font-body' })
