@@ -6,6 +6,7 @@ import { Transaction } from '@/lib/finance'
 
 const TRANSACTIONS_KEY = 'flow-preview-transactions'
 const NOTICE_KEY = 'flow-shortcut-sync-notice'
+const STAGE_KEY = 'flow-shortcut-staged-transactions'
 
 type PendingShortcutTransaction = Transaction & { createdAt?: string }
 
@@ -29,6 +30,15 @@ function readRows(): Transaction[] {
   }
 }
 
+function readStage(): PendingShortcutTransaction[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(STAGE_KEY) || '[]')
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
 function isDuplicate(rows: Transaction[], candidate: PendingShortcutTransaction) {
   return rows.some((row) =>
     row.id === candidate.id ||
@@ -41,7 +51,7 @@ function isDuplicate(rows: Transaction[], candidate: PendingShortcutTransaction)
 }
 
 function needsShortcutReview(row: Transaction) {
-  return row.source === 'iOS 카드알림 OCR' && row.merchantCategoryAuto === true && row.merchantCategoryConfirmed !== true
+  return row.source === 'iOS 카드알림 OCR' && row.merchantCategoryConfirmed !== true
 }
 
 function asReviewRow(row: PendingShortcutTransaction): PendingShortcutTransaction {
@@ -51,7 +61,18 @@ function asReviewRow(row: PendingShortcutTransaction): PendingShortcutTransactio
     category: '미분류',
     living: true,
     fixed: false,
+    merchantCategoryAuto: row.merchantCategoryAuto === true,
   }
+}
+
+function mergeStage(items: PendingShortcutTransaction[]) {
+  const existing = readStage()
+  const merged = [...existing]
+  items.forEach((item) => {
+    if (!isDuplicate(merged, item)) merged.push(item)
+  })
+  localStorage.setItem(STAGE_KEY, JSON.stringify(merged))
+  return merged
 }
 
 export function ShortcutInboxSync() {
@@ -60,10 +81,20 @@ export function ShortcutInboxSync() {
     let stopped = false
     const inheritedSetItem = Storage.prototype.setItem
 
-    // A shortcut transaction may already have been auto-classified on the server.
-    // Keep it in the transaction inbox as '미분류' until the user explicitly saves
-    // a category in the installed PWA. This also recovers shortcut rows that were
-    // previously synced but invisible because the transaction tab only showed 미분류.
+    // Recover any staged rows first. PrivacyRuntime keeps these rows merged into every
+    // transaction write until FinanceApp has hydrated them, so a slow PWA startup can no
+    // longer overwrite a shortcut import after the server inbox has been acknowledged.
+    try {
+      const staged = readStage().map(asReviewRow)
+      if (staged.length) {
+        const rows = readRows()
+        const additions = staged.filter((item) => !isDuplicate(rows, item))
+        if (additions.length) localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify([...rows, ...additions]))
+      }
+    } catch { /* ignore malformed legacy storage */ }
+
+    // Also recover older OCR rows that were already synced with an automatic category and
+    // therefore disappeared from the transaction inbox.
     try {
       const rows = readRows()
       let changed = false
@@ -75,8 +106,6 @@ export function ShortcutInboxSync() {
       if (changed) inheritedSetItem.call(localStorage, TRANSACTIONS_KEY, JSON.stringify(reviewed))
     } catch { /* ignore malformed legacy storage */ }
 
-    // Mark an OCR transaction confirmed when the user changes it from 미분류 to a
-    // concrete category. Otherwise a later app launch would put it back in the inbox.
     Storage.prototype.setItem = function (key: string, value: string) {
       if (this === window.localStorage && key === TRANSACTIONS_KEY) {
         try {
@@ -124,7 +153,10 @@ export function ShortcutInboxSync() {
           .filter((item) => !isDuplicate(rows, item))
           .map(asReviewRow)
 
+        // Persist a durable staging copy BEFORE acknowledging the server. If FinanceApp
+        // is still hydrating, PrivacyRuntime merges this staging copy into the later write.
         if (additions.length) {
+          mergeStage(additions)
           localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify([...rows, ...additions]))
         }
 
@@ -132,7 +164,7 @@ export function ShortcutInboxSync() {
         if (additions.length) {
           const total = additions.reduce((sum, item) => sum + Number(item.amount || 0), 0)
           sessionStorage.setItem(NOTICE_KEY, `카드 알림 ${additions.length}건 동기화 완료\n${total.toLocaleString('ko-KR')}원\n거래 탭에서 카테고리를 확인하세요.`)
-          window.location.reload()
+          window.setTimeout(() => window.location.reload(), 100)
         }
       } catch {
         // Keep the inbox on the server and retry the next time the installed PWA is opened.
@@ -142,9 +174,9 @@ export function ShortcutInboxSync() {
     }
 
     showPendingNotice()
-    const timer = window.setTimeout(() => void sync(), 700)
-    const onVisible = () => { if (document.visibilityState === 'visible') void sync() }
-    const onPageShow = () => void sync()
+    const timer = window.setTimeout(() => void sync(), 1500)
+    const onVisible = () => { if (document.visibilityState === 'visible') window.setTimeout(() => void sync(), 300) }
+    const onPageShow = () => window.setTimeout(() => void sync(), 300)
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('pageshow', onPageShow)
 
