@@ -4,7 +4,7 @@ import { FixedSectionInteractions } from '@/components/fixed-section-interaction
 import { PrivacyRuntime } from '@/components/privacy-runtime'
 import { TransactionBulkInteractions } from '@/components/transaction-bulk-interactions'
 import { FinancePolicyInteractions } from '@/components/finance-policy-interactions'
-import { ShortcutCardImport } from '@/components/shortcut-card-import'
+import { ShortcutInboxSync } from '@/components/shortcut-inbox-sync'
 import './globals.css'
 import './mobile-fixes.css'
 import './budget-interactions.css'
@@ -36,7 +36,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="ko">
-      <body><PrivacyRuntime /><ShortcutCardImport />{children}<BudgetInteractions /><FixedSectionInteractions /><TransactionBulkInteractions /><FinancePolicyInteractions /></body>
+      <body><PrivacyRuntime /><ShortcutInboxSync />{children}<BudgetInteractions /><FixedSectionInteractions /><TransactionBulkInteractions /><FinancePolicyInteractions /></body>
     </html>
   )
 }
