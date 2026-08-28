@@ -133,11 +133,11 @@ function FixedCosts({ rows, hidden, plans, setPlans, loans, setLoans, settings }
 
 function ConnectionSettings({ endpoint, setEndpoint, authenticated, onLogin, onLogout, onLoad, onSave, status }: { endpoint: string; setEndpoint: (value: string) => void; authenticated: boolean; onLogin: (password: string) => void; onLogout: () => void; onLoad: () => void; onSave: () => void; status: string }) {
   const [password, setPassword] = useState('')
-  return <><PageTitle eyebrow="GOOGLE DRIVE" title="기기 간 데이터 연결" copy="웹 앱 주소는 앱에 기본 저장되어 Safari 데이터를 지워도 자동 복원됩니다. 인증만 다시 하면 같은 Drive 데이터를 사용할 수 있습니다." /><article className="panel settings-card">
+  return <><PageTitle eyebrow="GOOGLE DRIVE" title="기기 간 데이터 연결" copy="금융 데이터는 Google Drive를 원본으로 사용합니다. 이 기기에는 인증 정보 외의 금융 데이터를 영구 저장하지 않습니다." /><article className="panel settings-card">
     <div className={`connection-state ${authenticated ? 'connected' : ''}`}><b>{authenticated ? 'Drive 인증됨' : '인증 필요'}</b><span>{authenticated ? '이 기기는 최대 180일 동안 인증을 유지합니다.' : 'Safari 데이터를 지웠다면 숫자 비밀번호를 다시 입력하세요.'}</span></div>
     {!authenticated && <><label>숫자 비밀번호<input type="password" inputMode="numeric" pattern="[0-9]*" minLength={6} maxLength={12} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="6~12자리" autoComplete="current-password" /></label><button className="primary auth-button" onClick={() => onLogin(password)}>인증하고 Drive 불러오기</button></>}
     <details className="endpoint-details"><summary>웹 앱 주소 변경</summary><label>Apps Script 웹 앱 주소<input type="url" value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder={DEFAULT_APPS_SCRIPT_URL} /></label><small>기본 주소가 앱 코드에 포함되어 있어 브라우저 저장소가 초기화되어도 사라지지 않습니다.</small></details>
-    <p>Drive에는 가맹점명·결제시각·메모·업로드 파일명을 저장하지 않습니다. 날짜·금액·카테고리·결제수단과 집계에 필요한 체크값만 저장합니다.</p>
+    <p>거래·예산·대출 데이터는 Drive를 원본으로 사용하고, 결제시각·가맹점·메모 같은 거래 상세는 Drive의 별도 보호 저장소에 보관합니다.</p>
     {authenticated && <div className="settings-actions"><button className="secondary" onClick={onLoad}>Drive에서 불러오기</button><button className="primary" onClick={onSave}>현재 데이터를 Drive에 저장</button><button className="text-button" onClick={onLogout}>이 기기 인증 해제</button></div>}{status && <div className="sync-status">{status}</div>}
   </article></>
 }
@@ -171,18 +171,35 @@ export function FinanceApp() {
   useEffect(() => { if (loaded) localStorage.setItem('flow-preview-loans', JSON.stringify(loans)) }, [loans, loaded])
   useEffect(() => { if (loaded) { localStorage.setItem('flow-preview-fixed', JSON.stringify(fixedPlans)); if (endpoint !== DEFAULT_APPS_SCRIPT_URL) localStorage.setItem('flow-drive-endpoint', endpoint); else localStorage.removeItem('flow-drive-endpoint'); if (token) localStorage.setItem('flow-drive-token', token); else localStorage.removeItem('flow-drive-token') } }, [fixedPlans, endpoint, token, loaded])
   useEffect(() => { if (loaded) localStorage.setItem('flow-preview-settings', JSON.stringify(settings)) }, [settings, loaded])
+  const loadDrive = async (authToken = token) => { try { if (!authToken) throw new Error('먼저 숫자 비밀번호로 인증하세요.'); setSyncStatus('Drive에서 불러오는 중…'); const data = await loadDriveSnapshot(endpoint, authToken); setAllRows(() => restoreDriveTransactions(data.transactions || [])); setLoans(normalizeLoans(data.loans || [])); setFixedPlans(normalizeFixed(data.fixedPlans || [])); setSettings(data.settings || EMPTY_SETTINGS); setAuthenticated(true); setSyncStatus(`불러오기 완료 · ${new Date().toLocaleTimeString('ko-KR')}`) } catch (error) { setSyncStatus(error instanceof Error ? error.message : '불러오기에 실패했습니다.') } }
   useEffect(() => {
     if (!loaded || !token) return
-    checkDriveAuth(endpoint, token).then(() => setAuthenticated(true)).catch(() => { setToken(''); setAuthenticated(false) })
+    let cancelled = false
+    checkDriveAuth(endpoint, token).then(async () => {
+      if (cancelled) return
+      setAuthenticated(true)
+      await loadDrive(token)
+    }).catch(() => { if (!cancelled) { setToken(''); setAuthenticated(false) } })
+    return () => { cancelled = true }
   }, [loaded, endpoint, token])
+  useEffect(() => {
+    if (!loaded || !token || !authenticated) return
+    const refresh = () => { if (document.visibilityState === 'visible') void loadDrive(token) }
+    const onPageShow = () => void loadDrive(token)
+    document.addEventListener('visibilitychange', refresh)
+    window.addEventListener('pageshow', onPageShow)
+    return () => {
+      document.removeEventListener('visibilitychange', refresh)
+      window.removeEventListener('pageshow', onPageShow)
+    }
+  }, [loaded, endpoint, token, authenticated])
   const rows = useMemo(() => allRows.filter((row) => row.date.startsWith(cutoff.slice(0, 7)) && row.date <= cutoff), [allRows, cutoff])
   const duplicate = (value: Transaction) => allRows.some((row) => row.id !== value.id && row.date === value.date && row.time === value.time && row.card === value.card && normalizeMerchant(row.merchant) === normalizeMerchant(value.merchant) && row.amount === value.amount)
   const save = (value: Transaction) => { setAllRows((current) => current.some((row) => row.id === value.id) ? current.map((row) => row.id === value.id ? value : row) : [...current, value]); return true }
   const deleteRow = (id: string) => { if (confirm('이 거래를 완전히 삭제할까요? 같은 내역을 다시 업로드하면 다시 추가됩니다.')) setAllRows((current) => current.filter((row) => row.id !== id)) }
-  const loadDrive = async (authToken = token) => { try { if (!authToken) throw new Error('먼저 숫자 비밀번호로 인증하세요.'); setSyncStatus('Drive에서 불러오는 중…'); const data = await loadDriveSnapshot(endpoint, authToken); setAllRows((current) => restoreDriveTransactions(data.transactions || [], current)); setLoans(normalizeLoans(data.loans || [])); setFixedPlans(normalizeFixed(data.fixedPlans || [])); setSettings(data.settings || EMPTY_SETTINGS); setAuthenticated(true); setSyncStatus(`불러오기 완료 · ${new Date().toLocaleTimeString('ko-KR')}`) } catch (error) { setSyncStatus(error instanceof Error ? error.message : '불러오기에 실패했습니다.') } }
   const login = async (password: string) => { try { if (!/^\d{6,12}$/.test(password)) throw new Error('숫자 비밀번호 6~12자리를 입력하세요.'); setSyncStatus('인증 중…'); const session = await loginDrive(endpoint, password); setToken(session.authToken); setAuthenticated(true); await loadDrive(session.authToken) } catch (error) { setAuthenticated(false); setSyncStatus(error instanceof Error ? error.message : '인증에 실패했습니다.') } }
   const logout = () => { setToken(''); setAuthenticated(false); setSyncStatus('이 기기의 인증을 해제했습니다.') }
-  const saveDrive = async () => { try { if (!token) throw new Error('먼저 숫자 비밀번호로 인증하세요.'); setSyncStatus('Drive에 저장하는 중…'); await saveDriveSnapshot(endpoint, token, { privacyVersion: 2, transactions: privateTransactionsForDrive(allRows), loans, fixedPlans, settings, cashFlow: 0 }); setSyncStatus(`상세내역 제외 저장 완료 · ${new Date().toLocaleTimeString('ko-KR')}`) } catch (error) { setSyncStatus(error instanceof Error ? error.message : '저장에 실패했습니다.') } }
+  const saveDrive = async () => { try { if (!token) throw new Error('먼저 숫자 비밀번호로 인증하세요.'); setSyncStatus('Drive에 저장하는 중…'); await saveDriveSnapshot(endpoint, token, { privacyVersion: 4, transactions: privateTransactionsForDrive(allRows), loans, fixedPlans, settings, cashFlow: 0 }); setSyncStatus(`Drive 저장 완료 · ${new Date().toLocaleTimeString('ko-KR')}`) } catch (error) { setSyncStatus(error instanceof Error ? error.message : '저장에 실패했습니다.') } }
   const importFile = async (file: File) => {
     try {
       const imported = await parseCardWorkbook(file)
@@ -198,7 +215,7 @@ export function FinanceApp() {
   }
   return <div className="app-shell"><ServiceWorkerRegister />
     {menu && <button className="scrim" onClick={() => setMenu(false)} aria-label="메뉴 닫기" />}
-    <aside className={`sidebar ${menu ? 'open' : ''}`}><div className="brand"><div>F</div><span><b>Flow</b><small>나의 자금관리</small></span></div><nav>{nav.map(([id, label, Icon]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => { setTab(id); setMenu(false) }}><Icon /><span>{label}</span></button>)}</nav><div className="sync"><span>데이터 저장 구조</span><b>{authenticated ? 'Google Drive 인증됨' : 'Google Drive 인증 필요'}</b><small>{authenticated ? '상세 가맹점 정보는 기기에만 보관' : '설정에서 숫자 비밀번호 입력'}</small></div></aside>
+    <aside className={`sidebar ${menu ? 'open' : ''}`}><div className="brand"><div>F</div><span><b>Flow</b><small>나의 자금관리</small></span></div><nav>{nav.map(([id, label, Icon]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => { setTab(id); setMenu(false) }}><Icon /><span>{label}</span></button>)}</nav><div className="sync"><span>데이터 저장 구조</span><b>{authenticated ? 'Google Drive 인증됨' : 'Google Drive 인증 필요'}</b><small>{authenticated ? '금융 데이터는 Drive 원본 · 기기에는 영구 저장 안 함' : '설정에서 숫자 비밀번호 입력'}</small></div></aside>
     <main><header><button className="icon-btn mobile" onClick={() => setMenu(true)}><Menu /></button><span className="current-date">{new Date(`${cutoff}T12:00:00`).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })} 현재</span><button className="icon-btn header-eye" onClick={() => setHidden(!hidden)} aria-label="금액 가리기">{hidden ? <EyeOff /> : <Eye />}</button></header>
       <div className="content">{!loaded ? <div className="loading">데이터를 불러오는 중…</div> : tab === 'home' ? <Dashboard rows={rows} cutoff={cutoff} hidden={hidden} loans={loans} settings={settings} setTab={setTab} /> : tab === 'transactions' ? <Transactions rows={allRows} hidden={hidden} onEdit={setEditing} onDelete={deleteRow} onAdd={() => setEditing({ ...emptyTx(), date: cutoff })} onImport={importFile} /> : tab === 'budget' ? <Budget rows={rows} hidden={hidden} settings={settings} /> : tab === 'cards' ? <Cards rows={rows} hidden={hidden} settings={settings} /> : tab === 'fixed' ? <FixedCosts rows={rows} hidden={hidden} plans={fixedPlans} setPlans={setFixedPlans} loans={loans} setLoans={setLoans} settings={settings} /> : <ConnectionSettings endpoint={endpoint} setEndpoint={setEndpoint} authenticated={authenticated} onLogin={login} onLogout={logout} onLoad={() => loadDrive()} onSave={saveDrive} status={syncStatus} />}</div>
     </main><nav className="bottom-nav">{nav.slice(0, 5).map(([id, label, Icon]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}><Icon /><span>{label}</span></button>)}</nav>
