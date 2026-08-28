@@ -106,13 +106,20 @@ function importShortcutTransaction_(body) {
   lock.waitLock(10000);
   try {
     var inbox = readShortcutInbox_();
-    var existing = inbox.items.some(function (row) { return shortcutTransactionKey_(row) === key; });
-    if (existing) return { ok: true, status: 'duplicate', merchant: merchant, amount: amount, category: category };
+    var existing = inbox.items.filter(function (row) { return shortcutTransactionKey_(row) === key; })[0];
+    if (existing) {
+      return {
+        ok: true,
+        status: 'pending',
+        merchant: merchant,
+        amount: amount,
+        category: category,
+        id: existing.id
+      };
+    }
 
-    // Do not reject a shortcut transaction merely because the Drive snapshot already
-    // contains a matching summary. The installed iPhone PWA has its own localStorage,
-    // and that local copy may be missing even when Drive has the transaction. Requeue
-    // it here and let the installed PWA perform the final local duplicate check.
+    // The installed Home Screen PWA owns the final duplicate decision because its
+    // localStorage is separate from Safari and may differ from the Drive snapshot.
     inbox.items.push(item);
     writeShortcutInbox_(inbox);
     return { ok: true, status: 'queued', merchant: merchant, amount: amount, category: category, id: item.id };
