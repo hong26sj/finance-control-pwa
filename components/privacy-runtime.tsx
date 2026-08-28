@@ -7,6 +7,19 @@ import { DEFAULT_APPS_SCRIPT_URL, saveMerchantRule, saveTransactionMerchants } f
 type PendingRule = { transactionId: string; rawMerchant?: string; merchantHash?: string; category: string }
 type PendingMerchant = { id: string; merchant: string; merchantHash?: string; category?: string }
 
+const SHORTCUT_STAGE_KEY = 'flow-shortcut-staged-transactions'
+const TRANSACTIONS_KEY = 'flow-preview-transactions'
+
+function sameTransaction(a: Transaction, b: Transaction) {
+  return a.id === b.id || (
+    a.date === b.date &&
+    a.time === b.time &&
+    a.card === b.card &&
+    Number(a.amount) === Number(b.amount) &&
+    String(a.merchant || '').trim() === String(b.merchant || '').trim()
+  )
+}
+
 export function PrivacyRuntime() {
   useLayoutEffect(() => {
     const originalSetItem = Storage.prototype.setItem
@@ -49,8 +62,26 @@ export function PrivacyRuntime() {
       try { rows = JSON.parse(value) as Transaction[] } catch { return value }
       if (!Array.isArray(rows)) return value
 
+      // Shortcut sync can finish while FinanceApp is still hydrating. In that race the
+      // old React state used to overwrite the newly imported transaction immediately
+      // after the server inbox had already been acknowledged. Keep a separate staged
+      // copy and merge it into every transaction write until FinanceApp has hydrated it.
+      try {
+        const staged = JSON.parse(window.localStorage.getItem(SHORTCUT_STAGE_KEY) || '[]') as Transaction[]
+        if (Array.isArray(staged) && staged.length) {
+          const allAlreadyPresent = staged.every((item) => rows.some((row) => sameTransaction(row, item)))
+          if (allAlreadyPresent) {
+            window.localStorage.removeItem(SHORTCUT_STAGE_KEY)
+          } else {
+            staged.forEach((item) => {
+              if (!rows.some((row) => sameTransaction(row, item))) rows.push(item)
+            })
+          }
+        }
+      } catch { /* keep normal transaction persistence working */ }
+
       let previous: Transaction[] = []
-      try { previous = JSON.parse(window.localStorage.getItem('flow-preview-transactions') || '[]') as Transaction[] } catch { /* ignore */ }
+      try { previous = JSON.parse(window.localStorage.getItem(TRANSACTIONS_KEY) || '[]') as Transaction[] } catch { /* ignore */ }
       const previousById = new Map(previous.map((row) => [row.id, row]))
 
       rows.forEach((row) => {
@@ -75,18 +106,15 @@ export function PrivacyRuntime() {
         }
       })
 
-      // Do not strip merchant names from the browser snapshot. The transaction inbox
-      // must show the merchant after the PWA is closed and opened again, and retaining
-      // the name also makes duplicate detection reliable on later Excel imports.
       window.setTimeout(() => void persistMerchants(), 0)
-      return value
+      return JSON.stringify(rows)
     }
 
-    const existing = window.localStorage.getItem('flow-preview-transactions')
-    if (existing) originalSetItem.call(window.localStorage, 'flow-preview-transactions', processRows(existing))
+    const existing = window.localStorage.getItem(TRANSACTIONS_KEY)
+    if (existing) originalSetItem.call(window.localStorage, TRANSACTIONS_KEY, processRows(existing))
 
     Storage.prototype.setItem = function (key: string, value: string) {
-      if (this === window.localStorage && key === 'flow-preview-transactions') value = processRows(value)
+      if (this === window.localStorage && key === TRANSACTIONS_KEY) value = processRows(value)
       const result = originalSetItem.call(this, key, value)
       if (this === window.localStorage && key === 'flow-drive-token' && value) window.setTimeout(flushPending, 0)
       return result
