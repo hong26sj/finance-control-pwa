@@ -10,7 +10,7 @@ function doPost(e) {
   try {
     var body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     if (body.action === 'login') return json_(login_(body.password));
-    if (body.action === 'shortcut.transaction.import') return json_(importShortcutTransactionDirect_(body));
+    if (body.action === 'shortcut.transaction.import') return json_(importShortcutTransactionDirectV2_(body));
 
     var auth = authorizeRequest_(body.auth_token, body.token);
     if (!auth.ok) return json_(auth);
@@ -18,6 +18,7 @@ function doPost(e) {
     if (body.action === 'snapshot.save') return json_({ ok: true, snapshot: saveSnapshot_(body.snapshot || defaultSnapshot_()) });
     if (body.action === 'snapshot.get') {
       migrateShortcutInboxToSnapshot_();
+      migrateShortcutClassificationV2_();
       return json_({ ok: true, snapshot: readSnapshotForClient_() });
     }
     if (body.action === 'transaction.upsertMany') return json_({ ok: true, result: upsertServerTransactions_(body.items || []) });
