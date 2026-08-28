@@ -20,7 +20,24 @@ function doPost(e) {
       migrateShortcutInboxToSnapshot_();
       migrateShortcutClassificationV2_();
       migrateShortcutAutoClassificationV3_();
-      return json_({ ok: true, snapshot: readSnapshotForClient_() });
+      var snapshot = readSnapshotForClient_();
+      var ids = snapshot.transactions.map(function (item) { return item.id; }).filter(Boolean);
+      if (ids.length) {
+        var details = getServerTransactionDetails_(ids);
+        var detailById = {};
+        details.forEach(function (item) { detailById[String(item.id)] = item; });
+        snapshot.transactions = snapshot.transactions.map(function (item) {
+          var detail = detailById[String(item.id)] || {};
+          var copy = {};
+          Object.keys(item).forEach(function (key) { copy[key] = item[key]; });
+          copy.time = String(detail.time || '');
+          copy.source = String(detail.source || 'Drive');
+          copy.memo = String(detail.memo || '');
+          copy.cashAdvance = detail.cashAdvance === true;
+          return copy;
+        });
+      }
+      return json_({ ok: true, snapshot: snapshot });
     }
     if (body.action === 'transaction.upsertMany') return json_({ ok: true, result: upsertServerTransactions_(body.items || []) });
     if (body.action === 'transaction.deleteMany') return json_({ ok: true, result: deleteServerTransactions_(body.ids || []) });
