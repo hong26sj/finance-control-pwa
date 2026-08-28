@@ -101,7 +101,10 @@ export function TransactionBulkInteractions() {
         : row)
       localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(next))
       selected.clear()
-      window.location.reload()
+      const selector = document.querySelector('[data-bulk-category]') as HTMLSelectElement | null
+      if (selector) selector.value = ''
+      window.dispatchEvent(new Event('pageshow'))
+      window.setTimeout(syncRows, 120)
     }
 
     const lockViewportForSearch = () => {
