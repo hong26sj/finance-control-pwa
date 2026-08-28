@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { DEFAULT_APPS_SCRIPT_URL } from '@/lib/drive-api'
 import { Transaction } from '@/lib/finance'
 
@@ -76,14 +76,14 @@ function mergeStage(items: PendingShortcutTransaction[]) {
 }
 
 export function ShortcutInboxSync() {
+  const [busy, setBusy] = useState(false)
+  const [status, setStatus] = useState('')
+
   useEffect(() => {
     let syncing = false
     let stopped = false
     const inheritedSetItem = Storage.prototype.setItem
 
-    // Recover any staged rows first. PrivacyRuntime keeps these rows merged into every
-    // transaction write until FinanceApp has hydrated them, so a slow PWA startup can no
-    // longer overwrite a shortcut import after the server inbox has been acknowledged.
     try {
       const staged = readStage().map(asReviewRow)
       if (staged.length) {
@@ -93,8 +93,6 @@ export function ShortcutInboxSync() {
       }
     } catch { /* ignore malformed legacy storage */ }
 
-    // Also recover older OCR rows that were already synced with an automatic category and
-    // therefore disappeared from the transaction inbox.
     try {
       const rows = readRows()
       let changed = false
@@ -137,57 +135,119 @@ export function ShortcutInboxSync() {
       window.setTimeout(() => window.alert(notice), 250)
     }
 
-    const sync = async () => {
+    const sync = async (manual = false) => {
       if (syncing || stopped || document.visibilityState === 'hidden') return
       const token = localStorage.getItem('flow-drive-token') || ''
-      if (!token) return
+      if (!token) {
+        setStatus('Drive 인증 필요')
+        if (manual) window.alert('카드알림을 가져오려면 홈 화면 Flow의 연결 설정에서 Drive 인증을 다시 해주세요.\n\nPWA를 삭제하거나 재설치할 필요는 없습니다.')
+        return
+      }
+
       const endpoint = localStorage.getItem('flow-drive-endpoint') || DEFAULT_APPS_SCRIPT_URL
       syncing = true
+      setBusy(true)
+      if (manual) setStatus('확인 중…')
+
       try {
         const result = await request(endpoint, token, { action: 'shortcut.pending.get' })
         const pending = (Array.isArray(result.items) ? result.items : []) as PendingShortcutTransaction[]
-        if (!pending.length) return
-
-        const rows = readRows()
-        const additions = pending
-          .filter((item) => !isDuplicate(rows, item))
-          .map(asReviewRow)
-
-        // Persist a durable staging copy BEFORE acknowledging the server. If FinanceApp
-        // is still hydrating, PrivacyRuntime merges this staging copy into the later write.
-        if (additions.length) {
-          mergeStage(additions)
-          localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify([...rows, ...additions]))
+        if (!pending.length) {
+          setStatus('대기 거래 없음')
+          if (manual) window.alert('서버에 대기 중인 카드알림 거래가 없습니다.')
+          return
         }
 
-        await request(endpoint, token, { action: 'shortcut.pending.ack', ids: pending.map((item) => item.id) })
+        const before = readRows()
+        const additions = pending
+          .filter((item) => !isDuplicate(before, item))
+          .map(asReviewRow)
+
+        if (additions.length) {
+          mergeStage(additions)
+          localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify([...before, ...additions]))
+        }
+
+        // Never acknowledge the server queue until the installed PWA can read every item
+        // back from its own localStorage. This protects the Home Screen PWA from losing an
+        // import even if React hydration or another storage writer runs at the same time.
+        const stored = readRows()
+        const verified = pending.filter((item) => isDuplicate(stored, asReviewRow(item)))
+        if (verified.length !== pending.length) {
+          throw new Error(`로컬 저장 확인 실패 (${verified.length}/${pending.length})`)
+        }
+
+        await request(endpoint, token, { action: 'shortcut.pending.ack', ids: verified.map((item) => item.id) })
+
         if (additions.length) {
           const total = additions.reduce((sum, item) => sum + Number(item.amount || 0), 0)
           sessionStorage.setItem(NOTICE_KEY, `카드 알림 ${additions.length}건 동기화 완료\n${total.toLocaleString('ko-KR')}원\n거래 탭에서 카테고리를 확인하세요.`)
-          window.setTimeout(() => window.location.reload(), 100)
+          setStatus(`${additions.length}건 저장 완료`)
+          window.setTimeout(() => window.location.reload(), 150)
+        } else {
+          setStatus('이미 로컬에 반영됨')
+          if (manual) window.alert('대기 거래는 홈 화면 Flow의 로컬 데이터에 이미 반영되어 있습니다.')
         }
-      } catch {
-        // Keep the inbox on the server and retry the next time the installed PWA is opened.
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '카드알림 동기화 실패'
+        setStatus(message)
+        if (manual) window.alert(`카드알림 동기화 실패\n${message}\n\n서버 대기 거래는 삭제하지 않고 유지합니다.`)
       } finally {
         syncing = false
+        setBusy(false)
       }
     }
 
+    ;(window as Window & { flowShortcutSync?: (manual?: boolean) => Promise<void> }).flowShortcutSync = sync
+
     showPendingNotice()
-    const timer = window.setTimeout(() => void sync(), 1500)
-    const onVisible = () => { if (document.visibilityState === 'visible') window.setTimeout(() => void sync(), 300) }
-    const onPageShow = () => window.setTimeout(() => void sync(), 300)
+    const timer = window.setTimeout(() => void sync(false), 1800)
+    const retry = window.setInterval(() => void sync(false), 10000)
+    const onVisible = () => { if (document.visibilityState === 'visible') window.setTimeout(() => void sync(false), 300) }
+    const onPageShow = () => window.setTimeout(() => void sync(false), 300)
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('pageshow', onPageShow)
 
     return () => {
       stopped = true
       window.clearTimeout(timer)
+      window.clearInterval(retry)
+      delete (window as Window & { flowShortcutSync?: (manual?: boolean) => Promise<void> }).flowShortcutSync
       Storage.prototype.setItem = inheritedSetItem
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('pageshow', onPageShow)
     }
   }, [])
 
-  return null
+  const runManual = () => {
+    const fn = (window as Window & { flowShortcutSync?: (manual?: boolean) => Promise<void> }).flowShortcutSync
+    if (fn) void fn(true)
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={runManual}
+      disabled={busy}
+      aria-label="카드알림 동기화"
+      title={status || '카드알림 동기화'}
+      style={{
+        position: 'fixed',
+        right: '14px',
+        bottom: 'calc(78px + env(safe-area-inset-bottom))',
+        zIndex: 120,
+        border: '1px solid #d7ded9',
+        borderRadius: '999px',
+        background: '#fff',
+        color: '#173c30',
+        boxShadow: '0 4px 16px rgba(16,28,24,.12)',
+        padding: '8px 12px',
+        fontSize: '11px',
+        fontWeight: 700,
+        opacity: busy ? .6 : 1,
+      }}
+    >
+      {busy ? '동기화 중…' : '카드알림 가져오기'}
+    </button>
+  )
 }
