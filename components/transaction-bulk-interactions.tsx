@@ -8,6 +8,7 @@ const TRANSACTIONS_KEY = 'flow-preview-transactions'
 export function TransactionBulkInteractions() {
   useEffect(() => {
     const selected = new Set<string>()
+    const optimisticallyClassified = new Set<string>()
     let viewportOriginal = ''
     let viewportLocked = false
 
@@ -25,7 +26,7 @@ export function TransactionBulkInteractions() {
     const filteredPending = () => {
       const query = (document.querySelector('.search input') as HTMLInputElement | null)?.value?.toLowerCase() || ''
       return readRows()
-        .filter((row) => row.category === '미분류')
+        .filter((row) => row.category === '미분류' && !optimisticallyClassified.has(row.id))
         .filter((row) => `${row.merchant} ${row.card}`.toLowerCase().includes(query))
         .sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`))
     }
@@ -74,6 +75,11 @@ export function TransactionBulkInteractions() {
       const data = filteredPending()
       const domRows = [...document.querySelectorAll<HTMLElement>('.tx-table .tx-row')]
       domRows.forEach((rowEl, index) => {
+        const existingId = rowEl.dataset.transactionId
+        if (existingId && optimisticallyClassified.has(existingId)) {
+          rowEl.remove()
+          return
+        }
         const tx = data[index]
         if (!tx) return
         rowEl.dataset.transactionId = tx.id
@@ -92,19 +98,38 @@ export function TransactionBulkInteractions() {
       updateToolbar()
     }
 
+    const updateInboxTitleOptimistically = (removedCount: number) => {
+      const title = document.querySelector<HTMLElement>('.page-title h1')
+      if (!title || removedCount <= 0) return
+      const match = title.textContent?.match(/미분류 거래\s+(\d+)건/)
+      if (!match) return
+      title.textContent = `미분류 거래 ${Math.max(0, Number(match[1]) - removedCount)}건`
+    }
+
     const applyBulkCategory = () => {
       const category = (document.querySelector('[data-bulk-category]') as HTMLSelectElement | null)?.value || ''
       if (!category || selected.size === 0) return
+      const ids = [...selected]
       const fixed = category === '고정비'
       const next = readRows().map((row) => selected.has(row.id)
         ? { ...row, category, living: !fixed, fixed }
         : row)
       localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(next))
+
+      ids.forEach((id) => optimisticallyClassified.add(id))
+      document.querySelectorAll<HTMLElement>('.tx-table .tx-row').forEach((row) => {
+        if (row.dataset.transactionId && optimisticallyClassified.has(row.dataset.transactionId)) row.remove()
+      })
+      updateInboxTitleOptimistically(ids.length)
+
       selected.clear()
       const selector = document.querySelector('[data-bulk-category]') as HTMLSelectElement | null
       if (selector) selector.value = ''
       updateToolbar()
-      window.setTimeout(() => window.dispatchEvent(new Event('pageshow')), 900)
+
+      // Drive 반영/React 상태 동기화는 기존 pageshow 경로를 사용하되,
+      // 선택한 항목은 서버 왕복을 기다리지 않고 즉시 목록에서 제거한다.
+      window.setTimeout(() => window.dispatchEvent(new Event('pageshow')), 80)
     }
 
     const lockViewportForSearch = () => {
