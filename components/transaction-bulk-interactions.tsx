@@ -103,8 +103,8 @@ export function TransactionBulkInteractions() {
       selected.clear()
       const selector = document.querySelector('[data-bulk-category]') as HTMLSelectElement | null
       if (selector) selector.value = ''
-      window.dispatchEvent(new Event('pageshow'))
-      window.setTimeout(syncRows, 120)
+      updateToolbar()
+      window.setTimeout(() => window.dispatchEvent(new Event('pageshow')), 900)
     }
 
     const lockViewportForSearch = () => {
