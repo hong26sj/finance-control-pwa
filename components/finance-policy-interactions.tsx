@@ -30,31 +30,58 @@ function setNativeChecked(input: HTMLInputElement, checked: boolean) {
   input.dispatchEvent(new Event('change', { bubbles: true }))
 }
 
-function enforceCategoryFlags() {
+function expenseTypeInputs() {
   const modal = document.querySelector<HTMLElement>('.modal')
-  if (!modal) return
-  const categorySelect = [...modal.querySelectorAll<HTMLSelectElement>('select')].find((select) => [...select.options].some((option) => option.value === '고정비'))
-  if (!categorySelect) return
+  if (!modal) return null
   const checkboxLabels = [...modal.querySelectorAll<HTMLLabelElement>('.checks label')]
-  const living = checkboxLabels.find((label) => label.textContent?.includes('생활비 포함'))?.querySelector<HTMLInputElement>('input[type="checkbox"]')
-  const fixed = checkboxLabels.find((label) => label.textContent?.trim() === '고정비')?.querySelector<HTMLInputElement>('input[type="checkbox"]')
-  if (!living || !fixed) return
+  const livingLabel = checkboxLabels.find((label) => label.textContent?.includes('생활비'))
+  const fixedLabel = checkboxLabels.find((label) => label.textContent?.trim() === '고정비')
+  const living = livingLabel?.querySelector<HTMLInputElement>('input[type="checkbox"]')
+  const fixed = fixedLabel?.querySelector<HTMLInputElement>('input[type="checkbox"]')
+  if (!living || !fixed || !livingLabel || !fixedLabel) return null
+  return { modal, living, fixed, livingLabel, fixedLabel }
+}
 
-  const isFixed = categorySelect.value === '고정비'
-  setNativeChecked(fixed, isFixed)
-  setNativeChecked(living, !isFixed)
-  living.disabled = true
-  fixed.disabled = true
-  living.closest('label')?.classList.add('policy-managed-check')
-  fixed.closest('label')?.classList.add('policy-managed-check')
+function syncExpenseTypeUI() {
+  const controls = expenseTypeInputs()
+  if (!controls) return
+  const { modal, living, fixed, livingLabel, fixedLabel } = controls
+  living.disabled = false
+  fixed.disabled = false
+  livingLabel.classList.remove('policy-managed-check')
+  fixedLabel.classList.remove('policy-managed-check')
 
-  let note = modal.querySelector<HTMLElement>('.category-policy-note')
+  livingLabel.childNodes.forEach((node) => {
+    if (node.nodeType === Node.TEXT_NODE && node.textContent?.includes('생활비 포함')) node.textContent = '생활비'
+  })
+
+  const oldNote = modal.querySelector<HTMLElement>('.category-policy-note')
+  if (oldNote) oldNote.remove()
+
+  let note = modal.querySelector<HTMLElement>('.expense-type-note')
   if (!note) {
     note = document.createElement('small')
-    note.className = 'category-policy-note'
-    categorySelect.closest('label')?.appendChild(note)
+    note.className = 'expense-type-note'
+    const checks = modal.querySelector('.checks')
+    checks?.insertAdjacentElement('beforebegin', note)
   }
-  note.textContent = isFixed ? '고정비로 분류되어 생활비에서는 제외됩니다.' : '생활비 카테고리로 분류되어 고정비에서는 제외됩니다.'
+  note.textContent = '생활비 또는 고정비 중 하나를 선택하세요.'
+}
+
+function merchantMatchesPlan(planName: string, merchant: string) {
+  const p = normalize(planName)
+  const m = normalize(merchant)
+  if (!p || !m) return false
+  if (m.includes(p) || p.includes(m)) return true
+  if (/(가스|도시가스)/.test(p) && /(가스|귀뚜라미에너지|예스코|서울도시가스|코원에너지)/.test(m)) return true
+  if (/관리비/.test(p) && /(아파트관리비|관리비)/.test(m)) return true
+  if (/(통신|휴대폰|핸드폰)/.test(p) && /(kt|skt|sk텔레콤|lg유플러스|통신요금)/.test(m)) return true
+  if (/보험/.test(p) && /보험/.test(m)) return true
+  if (/수도/.test(p) && /(수도|상하수도)/.test(m)) return true
+  if (/전기/.test(p) && /(한전|한국전력|전기요금)/.test(m)) return true
+  if (/청약/.test(p) && /청약/.test(m)) return true
+  if (/연금/.test(p) && /연금/.test(m)) return true
+  return false
 }
 
 function syncCardRemaining(rows: Transaction[]) {
@@ -81,22 +108,6 @@ function syncCardRemaining(rows: Transaction[]) {
       remaining.classList.remove('no-target')
     }
   })
-}
-
-function merchantMatchesPlan(planName: string, merchant: string) {
-  const p = normalize(planName)
-  const m = normalize(merchant)
-  if (!p || !m) return false
-  if (m.includes(p) || p.includes(m)) return true
-  if (/(가스|도시가스)/.test(p) && /(가스|귀뚜라미에너지|예스코|서울도시가스|코원에너지)/.test(m)) return true
-  if (/관리비/.test(p) && /(아파트관리비|관리비)/.test(m)) return true
-  if (/(통신|휴대폰|핸드폰)/.test(p) && /(kt|skt|sk텔레콤|lg유플러스|통신요금)/.test(m)) return true
-  if (/보험/.test(p) && /보험/.test(m)) return true
-  if (/수도/.test(p) && /(수도|상하수도)/.test(m)) return true
-  if (/전기/.test(p) && /(한전|한국전력|전기요금)/.test(m)) return true
-  if (/청약/.test(p) && /청약/.test(m)) return true
-  if (/연금/.test(p) && /연금/.test(m)) return true
-  return false
 }
 
 function syncFixedActuals(rows: Transaction[]) {
@@ -158,22 +169,39 @@ export function FinancePolicyInteractions() {
   useEffect(() => {
     const sync = () => {
       const rows = readRows()
-      enforceCategoryFlags()
+      syncExpenseTypeUI()
       syncCardRemaining(rows)
       syncFixedActuals(rows)
       syncBudgetRing(rows)
     }
 
     const onChange = (event: Event) => {
-      const target = event.target as HTMLElement | null
-      if (target?.closest('.modal select')) window.setTimeout(enforceCategoryFlags, 0)
+      const target = event.target as HTMLInputElement | null
+      const controls = expenseTypeInputs()
+      if (!target || !controls) return
+      const { living, fixed } = controls
+      if (target === living && living.checked) setNativeChecked(fixed, false)
+      if (target === fixed && fixed.checked) setNativeChecked(living, false)
+    }
+
+    const onSubmit = (event: Event) => {
+      const form = event.target as HTMLFormElement | null
+      if (!form?.classList.contains('modal')) return
+      const controls = expenseTypeInputs()
+      if (!controls) return
+      if (controls.living.checked || controls.fixed.checked) return
+      event.preventDefault()
+      event.stopPropagation()
+      window.alert('생활비 또는 고정비 중 하나를 선택하세요.')
     }
 
     document.addEventListener('change', onChange)
+    document.addEventListener('submit', onSubmit, true)
     const timer = window.setInterval(sync, 450)
     sync()
     return () => {
       document.removeEventListener('change', onChange)
+      document.removeEventListener('submit', onSubmit, true)
       window.clearInterval(timer)
     }
   }, [])
