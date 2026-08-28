@@ -40,10 +40,66 @@ function isDuplicate(rows: Transaction[], candidate: PendingShortcutTransaction)
   )
 }
 
+function needsShortcutReview(row: Transaction) {
+  return row.source === 'iOS 카드알림 OCR' && row.merchantCategoryAuto === true && row.merchantCategoryConfirmed !== true
+}
+
+function asReviewRow(row: PendingShortcutTransaction): PendingShortcutTransaction {
+  if (!needsShortcutReview(row)) return row
+  return {
+    ...row,
+    category: '미분류',
+    living: true,
+    fixed: false,
+  }
+}
+
 export function ShortcutInboxSync() {
   useEffect(() => {
     let syncing = false
     let stopped = false
+    const inheritedSetItem = Storage.prototype.setItem
+
+    // A shortcut transaction may already have been auto-classified on the server.
+    // Keep it in the transaction inbox as '미분류' until the user explicitly saves
+    // a category in the installed PWA. This also recovers shortcut rows that were
+    // previously synced but invisible because the transaction tab only showed 미분류.
+    try {
+      const rows = readRows()
+      let changed = false
+      const reviewed = rows.map((row) => {
+        const next = asReviewRow(row)
+        if (next !== row) changed = true
+        return next
+      })
+      if (changed) inheritedSetItem.call(localStorage, TRANSACTIONS_KEY, JSON.stringify(reviewed))
+    } catch { /* ignore malformed legacy storage */ }
+
+    // Mark an OCR transaction confirmed when the user changes it from 미분류 to a
+    // concrete category. Otherwise a later app launch would put it back in the inbox.
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (this === window.localStorage && key === TRANSACTIONS_KEY) {
+        try {
+          const previous = readRows()
+          const previousById = new Map(previous.map((row) => [row.id, row]))
+          const next = JSON.parse(value) as Transaction[]
+          if (Array.isArray(next)) {
+            value = JSON.stringify(next.map((row) => {
+              const before = previousById.get(row.id)
+              if (
+                row.source === 'iOS 카드알림 OCR' &&
+                before?.category === '미분류' &&
+                row.category !== '미분류'
+              ) {
+                return { ...row, merchantCategoryAuto: false, merchantCategoryConfirmed: true }
+              }
+              return row
+            }))
+          }
+        } catch { /* keep original value */ }
+      }
+      return inheritedSetItem.call(this, key, value)
+    }
 
     const showPendingNotice = () => {
       const notice = sessionStorage.getItem(NOTICE_KEY)
@@ -64,7 +120,10 @@ export function ShortcutInboxSync() {
         if (!pending.length) return
 
         const rows = readRows()
-        const additions = pending.filter((item) => !isDuplicate(rows, item))
+        const additions = pending
+          .filter((item) => !isDuplicate(rows, item))
+          .map(asReviewRow)
+
         if (additions.length) {
           localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify([...rows, ...additions]))
         }
@@ -72,7 +131,7 @@ export function ShortcutInboxSync() {
         await request(endpoint, token, { action: 'shortcut.pending.ack', ids: pending.map((item) => item.id) })
         if (additions.length) {
           const total = additions.reduce((sum, item) => sum + Number(item.amount || 0), 0)
-          sessionStorage.setItem(NOTICE_KEY, `카드 알림 ${additions.length}건 동기화 완료\n${total.toLocaleString('ko-KR')}원`)
+          sessionStorage.setItem(NOTICE_KEY, `카드 알림 ${additions.length}건 동기화 완료\n${total.toLocaleString('ko-KR')}원\n거래 탭에서 카테고리를 확인하세요.`)
           window.location.reload()
         }
       } catch {
@@ -92,6 +151,7 @@ export function ShortcutInboxSync() {
     return () => {
       stopped = true
       window.clearTimeout(timer)
+      Storage.prototype.setItem = inheritedSetItem
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('pageshow', onPageShow)
     }
