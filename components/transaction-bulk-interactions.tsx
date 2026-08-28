@@ -73,6 +73,7 @@ export function TransactionBulkInteractions() {
       ensureToolbar()
       const data = filteredPending()
       const domRows = [...document.querySelectorAll<HTMLElement>('.tx-table .tx-row')]
+        .filter((row) => row.style.display !== 'none')
       domRows.forEach((rowEl, index) => {
         const tx = data[index]
         if (!tx) return
@@ -101,14 +102,22 @@ export function TransactionBulkInteractions() {
         ? { ...row, category, living: !fixed, fixed }
         : row)
 
-      // PrivacyRuntime가 이 변경을 Drive에 저장한다. React가 관리하는 DOM을 직접 삭제하지 않는다.
+      // PrivacyRuntime가 메모리 변경을 Drive에 저장한다.
       localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(next))
-      window.dispatchEvent(new CustomEvent('flow:bulk-category-applied', { detail: { ids, category } }))
+
+      // React가 관리하는 노드를 remove()하지 않고 시각적으로만 즉시 숨긴다.
+      // 서버 동기화 후 React가 정상적으로 목록을 다시 그리게 해 client-side exception을 방지한다.
+      document.querySelectorAll<HTMLElement>('.tx-table .tx-row').forEach((row) => {
+        if (row.dataset.transactionId && ids.includes(row.dataset.transactionId)) row.style.display = 'none'
+      })
 
       selected.clear()
       const selector = document.querySelector('[data-bulk-category]') as HTMLSelectElement | null
       if (selector) selector.value = ''
       updateToolbar()
+
+      // Drive 쓰기가 반영될 시간을 준 뒤 현재 거래 탭 상태에서 원본 데이터를 다시 읽는다.
+      window.setTimeout(() => window.dispatchEvent(new Event('pageshow')), 900)
     }
 
     const lockViewportForSearch = () => {
