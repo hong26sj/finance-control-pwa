@@ -48,10 +48,10 @@ export function PrivacyRuntime() {
     const originalRemoveItem = Storage.prototype.removeItem
     const memory = new Map<string, string>()
     let serverReady = false
-    let loadingRemote = false
-    let loadRequested = false
+    let authSeen = false
+    let hydrationTimer: number | undefined
     let configTimer: number | undefined
-    let disposed = false
+    let suspendUntil = 0
 
     const realLocalGet = (key: string) => originalGetItem.call(window.localStorage, key)
     const getAuth = () => ({
@@ -65,8 +65,10 @@ export function PrivacyRuntime() {
       originalRemoveItem.call(window.localStorage, 'flow-shortcut-sync-notice')
     }
 
+    const suspended = () => Date.now() < suspendUntil
+
     const persistTransactionDiff = (previousValue: string | null, nextValue: string) => {
-      if (!serverReady || loadingRemote) return
+      if (!serverReady || suspended()) return
       const { token, endpoint } = getAuth()
       if (!token) return
       const previous = parseRows(previousValue)
@@ -83,7 +85,7 @@ export function PrivacyRuntime() {
     }
 
     const persistConfig = () => {
-      if (!serverReady || loadingRemote) return
+      if (!serverReady || suspended()) return
       const { token, endpoint } = getAuth()
       if (!token) return
       const loans = parseArray<Loan>(memory.get(LOANS_KEY) || null)
@@ -94,9 +96,18 @@ export function PrivacyRuntime() {
     }
 
     const scheduleConfig = () => {
-      if (!serverReady || loadingRemote) return
+      if (!serverReady || suspended()) return
       if (configTimer !== undefined) window.clearTimeout(configTimer)
       configTimer = window.setTimeout(persistConfig, 650)
+    }
+
+    const armServerReadyAfterHydration = () => {
+      if (serverReady || !authSeen || hydrationTimer !== undefined) return
+      hydrationTimer = window.setTimeout(() => {
+        serverReady = true
+        hydrationTimer = undefined
+        purgeLegacyFinanceData()
+      }, 900)
     }
 
     Storage.prototype.getItem = function (key: string) {
@@ -108,6 +119,10 @@ export function PrivacyRuntime() {
       if (this === window.localStorage && FINANCE_KEYS.has(key)) {
         const previous = memory.get(key) ?? null
         memory.set(key, value)
+        if (!serverReady) {
+          armServerReadyAfterHydration()
+          return
+        }
         if (key === TRANSACTIONS_KEY) persistTransactionDiff(previous, value)
         else scheduleConfig()
         return
@@ -119,7 +134,7 @@ export function PrivacyRuntime() {
       if (this === window.localStorage && FINANCE_KEYS.has(key)) {
         const previous = memory.get(key) ?? null
         memory.delete(key)
-        if (key === TRANSACTIONS_KEY && previous && serverReady && !loadingRemote) {
+        if (key === TRANSACTIONS_KEY && previous && serverReady && !suspended()) {
           const { token, endpoint } = getAuth()
           const ids = parseRows(previous).map((row) => row.id)
           if (token && ids.length) void deleteDriveTransactions(endpoint, token, ids).catch(() => undefined)
@@ -129,60 +144,28 @@ export function PrivacyRuntime() {
       return originalRemoveItem.call(this, key)
     }
 
-    const markRemoteLoading = () => {
-      loadingRemote = true
-      loadRequested = true
-    }
-
-    const requestRemoteLoad = () => {
-      if (disposed || loadingRemote) return
-      const { token } = getAuth()
-      if (!token) return
-      const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((item) => item.textContent?.trim() === 'Drive에서 불러오기')
-      if (!button) return
-      markRemoteLoading()
-      button.click()
-    }
-
+    const suspendForRemoteLoad = () => { suspendUntil = Date.now() + 3500 }
     const onClickCapture = (event: MouseEvent) => {
       const button = (event.target as HTMLElement | null)?.closest('button')
       const text = button?.textContent?.trim() || ''
-      if (text === 'Drive에서 불러오기' || text.includes('인증하고 Drive 불러오기')) markRemoteLoading()
+      if (text === 'Drive에서 불러오기' || text.includes('인증하고 Drive 불러오기')) suspendForRemoteLoad()
     }
-
-    const onVisible = () => {
-      if (document.visibilityState !== 'visible') return
-      window.setTimeout(() => requestRemoteLoad(), 350)
-    }
-
-    const onPageShow = () => window.setTimeout(() => requestRemoteLoad(), 350)
+    const onVisible = () => { if (document.visibilityState === 'visible') suspendForRemoteLoad() }
+    const onPageShow = () => suspendForRemoteLoad()
 
     document.addEventListener('click', onClickCapture, true)
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('pageshow', onPageShow)
 
-    const watcher = window.setInterval(() => {
-      if (disposed) return
-      const status = document.querySelector<HTMLElement>('.sync-status')?.textContent?.trim() || ''
-      if (loadingRemote && status.includes('불러오기 완료')) {
-        loadingRemote = false
-        loadRequested = false
-        serverReady = true
-        purgeLegacyFinanceData()
-      } else if (loadingRemote && status && !status.includes('중…') && !status.includes('불러오기 완료')) {
-        loadingRemote = false
-        loadRequested = false
-      }
-
-      if (!loadingRemote && !serverReady && !loadRequested) requestRemoteLoad()
-    }, 300)
-
-    window.setTimeout(() => requestRemoteLoad(), 450)
+    const authWatcher = window.setInterval(() => {
+      const state = document.querySelector<HTMLElement>('.sidebar .sync b')?.textContent?.trim() || ''
+      if (state.includes('인증됨')) authSeen = true
+    }, 200)
 
     return () => {
-      disposed = true
+      if (hydrationTimer !== undefined) window.clearTimeout(hydrationTimer)
       if (configTimer !== undefined) window.clearTimeout(configTimer)
-      window.clearInterval(watcher)
+      window.clearInterval(authWatcher)
       document.removeEventListener('click', onClickCapture, true)
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('pageshow', onPageShow)
