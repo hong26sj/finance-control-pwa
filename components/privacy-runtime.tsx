@@ -1,126 +1,195 @@
 'use client'
 
 import { useLayoutEffect } from 'react'
-import { Transaction } from '@/lib/finance'
-import { DEFAULT_APPS_SCRIPT_URL, saveMerchantRule, saveTransactionMerchants } from '@/lib/drive-api'
+import { FinanceSettings, FixedPlan, Loan, Transaction } from '@/lib/finance'
+import { DEFAULT_APPS_SCRIPT_URL, deleteDriveTransactions, saveDriveConfig, upsertDriveTransactions } from '@/lib/drive-api'
 
-type PendingRule = { transactionId: string; rawMerchant?: string; merchantHash?: string; category: string }
-type PendingMerchant = { id: string; merchant: string; merchantHash?: string; category?: string }
-
-const SHORTCUT_STAGE_KEY = 'flow-shortcut-staged-transactions'
 const TRANSACTIONS_KEY = 'flow-preview-transactions'
+const LOANS_KEY = 'flow-preview-loans'
+const FIXED_KEY = 'flow-preview-fixed'
+const SETTINGS_KEY = 'flow-preview-settings'
+const FINANCE_KEYS = new Set([TRANSACTIONS_KEY, LOANS_KEY, FIXED_KEY, SETTINGS_KEY])
 
-function sameTransaction(a: Transaction, b: Transaction) {
-  return a.id === b.id || (
-    a.date === b.date &&
-    a.time === b.time &&
-    a.card === b.card &&
-    Number(a.amount) === Number(b.amount) &&
-    String(a.merchant || '').trim() === String(b.merchant || '').trim()
-  )
+function parseRows(value: string | null): Transaction[] {
+  try {
+    const rows = JSON.parse(value || '[]') as Transaction[]
+    return Array.isArray(rows) ? rows : []
+  } catch {
+    return []
+  }
+}
+
+function parseArray<T>(value: string | null): T[] {
+  try {
+    const items = JSON.parse(value || '[]') as T[]
+    return Array.isArray(items) ? items : []
+  } catch {
+    return []
+  }
+}
+
+function parseSettings(value: string | null): FinanceSettings | undefined {
+  try {
+    const settings = JSON.parse(value || 'null') as FinanceSettings | null
+    return settings && typeof settings === 'object' ? settings : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function sameRow(a: Transaction, b: Transaction) {
+  return JSON.stringify(a) === JSON.stringify(b)
 }
 
 export function PrivacyRuntime() {
   useLayoutEffect(() => {
+    const originalGetItem = Storage.prototype.getItem
     const originalSetItem = Storage.prototype.setItem
-    const pendingRules = new Map<string, PendingRule>()
-    const pendingMerchants = new Map<string, PendingMerchant>()
+    const originalRemoveItem = Storage.prototype.removeItem
+    const memory = new Map<string, string>()
+    let serverReady = false
+    let loadingRemote = false
+    let loadRequested = false
+    let configTimer: number | undefined
+    let disposed = false
 
+    const realLocalGet = (key: string) => originalGetItem.call(window.localStorage, key)
     const getAuth = () => ({
-      token: window.localStorage.getItem('flow-drive-token') || '',
-      endpoint: window.localStorage.getItem('flow-drive-endpoint') || DEFAULT_APPS_SCRIPT_URL,
+      token: realLocalGet('flow-drive-token') || '',
+      endpoint: realLocalGet('flow-drive-endpoint') || DEFAULT_APPS_SCRIPT_URL,
     })
 
-    const persistRule = async (key: string, rule: PendingRule) => {
+    const purgeLegacyFinanceData = () => {
+      FINANCE_KEYS.forEach((key) => originalRemoveItem.call(window.localStorage, key))
+      originalRemoveItem.call(window.localStorage, 'flow-shortcut-staged-transactions')
+      originalRemoveItem.call(window.localStorage, 'flow-shortcut-sync-notice')
+    }
+
+    const persistTransactionDiff = (previousValue: string | null, nextValue: string) => {
+      if (!serverReady || loadingRemote) return
       const { token, endpoint } = getAuth()
-      if (!token) { pendingRules.set(key, rule); return }
-      try {
-        await saveMerchantRule(endpoint, token, rule)
-        pendingRules.delete(key)
-      } catch {
-        pendingRules.set(key, rule)
-      }
-    }
-
-    const persistMerchants = async () => {
-      const { token, endpoint } = getAuth()
-      if (!token || pendingMerchants.size === 0) return
-      const items = [...pendingMerchants.values()]
-      try {
-        await saveTransactionMerchants(endpoint, token, items)
-        items.forEach((item) => pendingMerchants.delete(item.id))
-      } catch { /* keep pending in memory */ }
-    }
-
-    const flushPending = () => {
-      pendingRules.forEach((rule, key) => { void persistRule(key, rule) })
-      void persistMerchants()
-    }
-
-    const processRows = (value: string) => {
-      let rows: Transaction[]
-      try { rows = JSON.parse(value) as Transaction[] } catch { return value }
-      if (!Array.isArray(rows)) return value
-
-      // Shortcut sync can finish while FinanceApp is still hydrating. In that race the
-      // old React state used to overwrite the newly imported transaction immediately
-      // after the server inbox had already been acknowledged. Keep a separate staged
-      // copy and merge it into every transaction write until FinanceApp has hydrated it.
-      try {
-        const staged = JSON.parse(window.localStorage.getItem(SHORTCUT_STAGE_KEY) || '[]') as Transaction[]
-        if (Array.isArray(staged) && staged.length) {
-          const allAlreadyPresent = staged.every((item) => rows.some((row) => sameTransaction(row, item)))
-          if (allAlreadyPresent) {
-            window.localStorage.removeItem(SHORTCUT_STAGE_KEY)
-          } else {
-            staged.forEach((item) => {
-              if (!rows.some((row) => sameTransaction(row, item))) rows.push(item)
-            })
-          }
-        }
-      } catch { /* keep normal transaction persistence working */ }
-
-      let previous: Transaction[] = []
-      try { previous = JSON.parse(window.localStorage.getItem(TRANSACTIONS_KEY) || '[]') as Transaction[] } catch { /* ignore */ }
+      if (!token) return
+      const previous = parseRows(previousValue)
+      const next = parseRows(nextValue)
       const previousById = new Map(previous.map((row) => [row.id, row]))
-
-      rows.forEach((row) => {
-        const merchant = String(row.merchant || '').trim()
-        if (merchant) {
-          pendingMerchants.set(row.id, {
-            id: row.id,
-            merchant,
-            merchantHash: row.merchantHash,
-            category: row.category,
-          })
-        }
-
-        const previousRow = previousById.get(row.id)
-        if (row.category !== '미분류' && (merchant || row.merchantHash) && (!previousRow || previousRow.category !== row.category)) {
-          void persistRule(row.id, {
-            transactionId: row.id,
-            rawMerchant: merchant || undefined,
-            merchantHash: row.merchantHash,
-            category: row.category,
-          })
-        }
+      const nextById = new Map(next.map((row) => [row.id, row]))
+      const upserts = next.filter((row) => {
+        const before = previousById.get(row.id)
+        return !before || !sameRow(before, row)
       })
-
-      window.setTimeout(() => void persistMerchants(), 0)
-      return JSON.stringify(rows)
+      const deletedIds = previous.filter((row) => !nextById.has(row.id)).map((row) => row.id)
+      if (upserts.length) void upsertDriveTransactions(endpoint, token, upserts).catch(() => undefined)
+      if (deletedIds.length) void deleteDriveTransactions(endpoint, token, deletedIds).catch(() => undefined)
     }
 
-    const existing = window.localStorage.getItem(TRANSACTIONS_KEY)
-    if (existing) originalSetItem.call(window.localStorage, TRANSACTIONS_KEY, processRows(existing))
+    const persistConfig = () => {
+      if (!serverReady || loadingRemote) return
+      const { token, endpoint } = getAuth()
+      if (!token) return
+      const loans = parseArray<Loan>(memory.get(LOANS_KEY) || null)
+      const fixedPlans = parseArray<FixedPlan>(memory.get(FIXED_KEY) || null)
+      const settings = parseSettings(memory.get(SETTINGS_KEY) || null)
+      if (!settings) return
+      void saveDriveConfig(endpoint, token, { loans, fixedPlans, settings, cashFlow: 0 }).catch(() => undefined)
+    }
+
+    const scheduleConfig = () => {
+      if (!serverReady || loadingRemote) return
+      if (configTimer !== undefined) window.clearTimeout(configTimer)
+      configTimer = window.setTimeout(persistConfig, 650)
+    }
+
+    Storage.prototype.getItem = function (key: string) {
+      if (this === window.localStorage && FINANCE_KEYS.has(key)) return memory.get(key) ?? null
+      return originalGetItem.call(this, key)
+    }
 
     Storage.prototype.setItem = function (key: string, value: string) {
-      if (this === window.localStorage && key === TRANSACTIONS_KEY) value = processRows(value)
-      const result = originalSetItem.call(this, key, value)
-      if (this === window.localStorage && key === 'flow-drive-token' && value) window.setTimeout(flushPending, 0)
-      return result
+      if (this === window.localStorage && FINANCE_KEYS.has(key)) {
+        const previous = memory.get(key) ?? null
+        memory.set(key, value)
+        if (key === TRANSACTIONS_KEY) persistTransactionDiff(previous, value)
+        else scheduleConfig()
+        return
+      }
+      return originalSetItem.call(this, key, value)
     }
 
-    return () => { Storage.prototype.setItem = originalSetItem }
+    Storage.prototype.removeItem = function (key: string) {
+      if (this === window.localStorage && FINANCE_KEYS.has(key)) {
+        const previous = memory.get(key) ?? null
+        memory.delete(key)
+        if (key === TRANSACTIONS_KEY && previous && serverReady && !loadingRemote) {
+          const { token, endpoint } = getAuth()
+          const ids = parseRows(previous).map((row) => row.id)
+          if (token && ids.length) void deleteDriveTransactions(endpoint, token, ids).catch(() => undefined)
+        }
+        return
+      }
+      return originalRemoveItem.call(this, key)
+    }
+
+    const markRemoteLoading = () => {
+      loadingRemote = true
+      loadRequested = true
+    }
+
+    const requestRemoteLoad = () => {
+      if (disposed || loadingRemote) return
+      const { token } = getAuth()
+      if (!token) return
+      const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((item) => item.textContent?.trim() === 'Drive에서 불러오기')
+      if (!button) return
+      markRemoteLoading()
+      button.click()
+    }
+
+    const onClickCapture = (event: MouseEvent) => {
+      const button = (event.target as HTMLElement | null)?.closest('button')
+      const text = button?.textContent?.trim() || ''
+      if (text === 'Drive에서 불러오기' || text.includes('인증하고 Drive 불러오기')) markRemoteLoading()
+    }
+
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      window.setTimeout(() => requestRemoteLoad(), 350)
+    }
+
+    const onPageShow = () => window.setTimeout(() => requestRemoteLoad(), 350)
+
+    document.addEventListener('click', onClickCapture, true)
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('pageshow', onPageShow)
+
+    const watcher = window.setInterval(() => {
+      if (disposed) return
+      const status = document.querySelector<HTMLElement>('.sync-status')?.textContent?.trim() || ''
+      if (loadingRemote && status.includes('불러오기 완료')) {
+        loadingRemote = false
+        loadRequested = false
+        serverReady = true
+        purgeLegacyFinanceData()
+      } else if (loadingRemote && status && !status.includes('중…') && !status.includes('불러오기 완료')) {
+        loadingRemote = false
+        loadRequested = false
+      }
+
+      if (!loadingRemote && !serverReady && !loadRequested) requestRemoteLoad()
+    }, 300)
+
+    window.setTimeout(() => requestRemoteLoad(), 450)
+
+    return () => {
+      disposed = true
+      if (configTimer !== undefined) window.clearTimeout(configTimer)
+      window.clearInterval(watcher)
+      document.removeEventListener('click', onClickCapture, true)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('pageshow', onPageShow)
+      Storage.prototype.getItem = originalGetItem
+      Storage.prototype.setItem = originalSetItem
+      Storage.prototype.removeItem = originalRemoveItem
+    }
   }, [])
 
   return null
