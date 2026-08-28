@@ -13,8 +13,6 @@ export type FinanceSnapshot = { version?: number; privacyVersion?: number; updat
 export type MerchantResolution = { merchant: string; merchantHash: string; rule?: MerchantRule }
 export type MerchantVaultItem = { id: string; merchant: string; merchantHash?: string; category?: string }
 
-type TransactionDetail = { id: string; time?: string; source?: string; memo?: string; cashAdvance?: boolean }
-
 async function request(endpoint: string, authToken: string, body: Record<string, unknown>) {
   const target = endpoint.trim() || DEFAULT_APPS_SCRIPT_URL
   const response = await fetch(target, {
@@ -67,14 +65,7 @@ export async function checkDriveAuth(endpoint: string, authToken: string) {
 }
 
 export async function loadDriveSnapshot(endpoint: string, authToken: string): Promise<FinanceSnapshot> {
-  const snapshot = (await request(endpoint, authToken, { action: 'snapshot.get' })).snapshot as FinanceSnapshot
-  const ids = Array.isArray(snapshot?.transactions) ? snapshot.transactions.map((item) => item.id).filter(Boolean) : []
-  if (!ids.length) return snapshot
-  const detailResult = await request(endpoint, authToken, { action: 'transaction.details.get', ids })
-  const details = (Array.isArray(detailResult.items) ? detailResult.items : []) as TransactionDetail[]
-  const byId = new Map(details.map((item) => [item.id, item]))
-  snapshot.transactions = snapshot.transactions.map((item) => ({ ...item, ...(byId.get(item.id) || {}) }))
-  return snapshot
+  return (await request(endpoint, authToken, { action: 'snapshot.get' })).snapshot as FinanceSnapshot
 }
 
 export async function upsertDriveTransactions(endpoint: string, authToken: string, items: Transaction[]) {
