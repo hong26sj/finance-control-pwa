@@ -19,6 +19,7 @@ function doPost(e) {
     if (body.action === 'snapshot.get') {
       migrateShortcutInboxToSnapshot_();
       migrateShortcutClassificationV2_();
+      migrateShortcutAutoClassificationV3_();
       return json_({ ok: true, snapshot: readSnapshotForClient_() });
     }
     if (body.action === 'transaction.upsertMany') return json_({ ok: true, result: upsertServerTransactions_(body.items || []) });
