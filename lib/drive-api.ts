@@ -13,7 +13,15 @@ export type FinanceSnapshot = { version?: number; privacyVersion?: number; updat
 export type MerchantResolution = { merchant: string; merchantHash: string; rule?: MerchantRule }
 export type MerchantVaultItem = { id: string; merchant: string; merchantHash?: string; category?: string }
 
-async function request(endpoint: string, authToken: string, body: Record<string, unknown>) {
+let requestTail: Promise<void> = Promise.resolve()
+
+function enqueueRequest<T>(task: () => Promise<T>): Promise<T> {
+  const run = requestTail.then(task, task)
+  requestTail = run.then(() => undefined, () => undefined)
+  return run
+}
+
+async function requestNow(endpoint: string, authToken: string, body: Record<string, unknown>) {
   const target = endpoint.trim() || DEFAULT_APPS_SCRIPT_URL
   const response = await fetch(target, {
     method: 'POST',
@@ -25,6 +33,10 @@ async function request(endpoint: string, authToken: string, body: Record<string,
   if (!result) throw new Error('Apps Script 응답을 확인할 수 없습니다.')
   if (!result.ok) throw new Error(result.error === 'UNAUTHORIZED' ? '인증이 필요합니다.' : (result.message || result.error || 'Google Drive 연결에 실패했습니다.'))
   return result
+}
+
+async function request(endpoint: string, authToken: string, body: Record<string, unknown>) {
+  return enqueueRequest(() => requestNow(endpoint, authToken, body))
 }
 
 export const privateTransactionsForDrive = (items: Transaction[]): DriveTransaction[] => items.map((item) => ({
@@ -84,10 +96,8 @@ export async function saveDriveConfig(endpoint: string, authToken: string, input
 
 export async function saveDriveSnapshot(endpoint: string, authToken: string, snapshot: FinanceSnapshot): Promise<FinanceSnapshot> {
   const rows = restoreDriveTransactions(snapshot.transactions || [])
-  await Promise.all([
-    upsertDriveTransactions(endpoint, authToken, rows),
-    saveDriveConfig(endpoint, authToken, { loans: snapshot.loans, fixedPlans: snapshot.fixedPlans, settings: snapshot.settings, cashFlow: snapshot.cashFlow }),
-  ])
+  await upsertDriveTransactions(endpoint, authToken, rows)
+  await saveDriveConfig(endpoint, authToken, { loans: snapshot.loans, fixedPlans: snapshot.fixedPlans, settings: snapshot.settings, cashFlow: snapshot.cashFlow })
   return loadDriveSnapshot(endpoint, authToken)
 }
 
