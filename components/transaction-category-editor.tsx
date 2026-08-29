@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { CATEGORIES, Transaction, won } from '@/lib/finance'
-import { DEFAULT_APPS_SCRIPT_URL, deleteDriveTransactions, deleteTransactionMerchant, saveMerchantRule, upsertDriveTransactions } from '@/lib/drive-api'
+import { DEFAULT_APPS_SCRIPT_URL, deleteDriveTransactions, deleteTransactionMerchant, upsertDriveTransactions } from '@/lib/drive-api'
 
 const TRANSACTIONS_KEY = 'flow-preview-transactions'
 
@@ -97,7 +97,7 @@ export function TransactionCategoryEditor() {
       merchantCategoryAmbiguous: false,
     }
 
-    // 화면은 즉시 반영하고 닫는다. Drive 저장은 뒤에서 수행한다.
+    // 화면은 즉시 반영하고 닫는다. Drive 저장은 직렬화된 요청 큐에서 뒤에서 수행한다.
     const nextRows = readRows().map((item) => item.id === next.id ? next : item)
     localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(nextRows))
     window.dispatchEvent(new CustomEvent('flow-transactions-changed', { detail: { id: next.id, row: next } }))
@@ -107,15 +107,9 @@ export function TransactionCategoryEditor() {
     setSaving(false)
 
     try {
+      // upsert가 거래 원본과 가맹점 vault의 category를 함께 갱신하므로
+      // 별도의 merchant.rule.save 요청을 다시 보내지 않는다.
       await upsertDriveTransactions(endpoint, token, [next])
-      if (next.category !== '미분류') {
-        void saveMerchantRule(endpoint, token, {
-          transactionId: next.id,
-          rawMerchant: next.merchant || undefined,
-          merchantHash: next.merchantHash,
-          category: next.category,
-        }).catch(() => undefined)
-      }
     } catch (e) {
       const rolledBackRows = readRows().map((item) => item.id === previous.id ? previous : item)
       localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(rolledBackRows))
