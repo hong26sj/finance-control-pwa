@@ -43,6 +43,7 @@ function showCardDetail(cardName: string) {
 
   const backdrop = document.createElement('div')
   backdrop.className = 'card-detail-backdrop'
+  backdrop.dataset.cardName = cardName
   backdrop.innerHTML = `
     <section class="card-detail-sheet" role="dialog" aria-modal="true" aria-label="${cardName} 결제 내역">
       <div class="card-detail-head">
@@ -50,7 +51,7 @@ function showCardDetail(cardName: string) {
           <span class="eyebrow">CARD TRANSACTIONS</span>
           <h2>${cardName}</h2>
           <p>${Number(month.slice(5, 7))}월 결제 ${rows.length}건 · 총 ${total.toLocaleString('ko-KR')}원</p>
-          <small>카드 실적 반영 ${performanceTotal.toLocaleString('ko-KR')}원 · 거래를 누르면 분류 수정</small>
+          <small>카드 실적 반영 ${performanceTotal.toLocaleString('ko-KR')}원 · 거래를 누르면 수정</small>
         </div>
         <button type="button" class="icon-btn card-detail-close" aria-label="닫기">×</button>
       </div>
@@ -58,7 +59,7 @@ function showCardDetail(cardName: string) {
         ${rows.length ? rows.map((row) => `
           <div class="card-detail-row" data-transaction-id="${row.id}">
             <div class="card-detail-date"><b>${row.date.replaceAll('-', '.')}</b><small>${row.time || '시각 미저장'}</small></div>
-            <div class="card-detail-merchant"><b>${row.merchant || '가맹점 정보 없음'}</b><small>${row.category || '미분류'}</small><div class="card-detail-tags">${row.fixed ? '<em>고정비</em>' : ''}${row.living ? '<em>생활비</em>' : ''}${!row.performanceIncluded ? '<em class="excluded">실적 제외</em>' : ''}</div></div>
+            <div class="card-detail-merchant"><b>${row.merchant || '가맹점 정보 없음'}</b><small>${row.category || '미분류'}</small><div class="card-detail-tags">${row.fixed ? '<em>고정비</em>' : ''}${row.living ? '<em>생활비</em>' : ''}${!row.performanceIncluded ? '<em class="excluded">실적 제외</em>' : '<em>실적 포함</em>'}</div></div>
             <strong>${Number(row.amount || 0).toLocaleString('ko-KR')}원</strong>
           </div>
         `).join('') : '<div class="card-detail-empty">이번 달 해당 카드 결제 내역이 없습니다.</div>'}
@@ -85,15 +86,23 @@ export function CardDetailInteractions() {
       showCardDetail(name)
     }
 
+    const onChanged = () => {
+      const open = document.querySelector<HTMLElement>('.card-detail-backdrop')
+      const cardName = open?.dataset.cardName || ''
+      if (cardName) showCardDetail(cardName)
+    }
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') closeOverlay()
     }
 
     document.addEventListener('click', onClick)
     document.addEventListener('keydown', onKeyDown)
+    window.addEventListener('flow-transactions-changed', onChanged)
     return () => {
       document.removeEventListener('click', onClick)
       document.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('flow-transactions-changed', onChanged)
       closeOverlay()
     }
   }, [])
