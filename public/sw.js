@@ -1,4 +1,4 @@
-const CACHE = 'flow-shell-v29'
+const CACHE = 'flow-shell-v30'
 const ROOT = new URL('./', self.registration.scope).pathname
 const SHELL = [ROOT, `${ROOT}offline/`, `${ROOT}manifest.webmanifest`, `${ROOT}icon.svg`]
 
