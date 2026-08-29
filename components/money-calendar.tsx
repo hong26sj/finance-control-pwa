@@ -55,6 +55,7 @@ export function MoneyCalendar() {
         document.querySelectorAll('[data-money-calendar-tab]').forEach((button) => button.classList.remove('active'))
       }
     }
+    const refreshRows = () => setRows(readTransactions())
 
     const makeButton = () => {
       const button = document.createElement('button')
@@ -73,9 +74,11 @@ export function MoneyCalendar() {
     if (sidebarButton) sidebarNav?.insertBefore(sidebarButton, sidebarNav.children[2] || null)
     if (mobileButton) bottomNav?.insertBefore(mobileButton, bottomNav.children[2] || null)
     document.addEventListener('click', deactivate)
+    window.addEventListener('flow-transactions-changed', refreshRows)
 
     return () => {
       document.removeEventListener('click', deactivate)
+      window.removeEventListener('flow-transactions-changed', refreshRows)
       sidebarButton?.remove()
       mobileButton?.remove()
       document.body.classList.remove('money-calendar-active')
@@ -130,7 +133,6 @@ export function MoneyCalendar() {
         <div><span className="eyebrow">MONEY CALENDAR</span><h1>머니 캘린더</h1><p>날짜별 지출 합계와 거래 건수를 월간 달력으로 확인합니다.</p></div>
         <div className="calendar-month-total"><span>이달 누계</span><b>{won(monthTotal)}</b><small>{filteredMonthRows.length}건</small></div>
       </div>
-
       <article className="panel calendar-panel">
         <div className="calendar-toolbar">
           <button type="button" className="calendar-arrow" onClick={() => moveMonth(-1)} aria-label="이전 달"><ChevronLeft /></button>
@@ -159,12 +161,11 @@ export function MoneyCalendar() {
           })}
         </div>
       </article>
-
       <article className="panel calendar-day-panel">
         <div className="calendar-day-head"><div><span className="eyebrow">DAILY DETAIL</span><h3>{Number(selected.slice(5, 7))}월 {Number(selected.slice(8, 10))}일</h3></div><div><b>{won(selectedTotal)}</b><small>{selectedRows.length}건</small></div></div>
-        {selectedRows.length === 0 ? <div className="calendar-empty-day">선택한 필터에 해당하는 거래가 없습니다.</div> : <div className="calendar-day-list">{selectedRows.map((row) => <div key={row.id}>
+        {selectedRows.length === 0 ? <div className="calendar-empty-day">선택한 필터에 해당하는 거래가 없습니다.</div> : <div className="calendar-day-list">{selectedRows.map((row) => <div key={row.id} data-transaction-id={row.id}>
           <span className="calendar-category-dot" style={{ background: CATEGORY_COLORS[row.category] || '#89948e' }} />
-          <span><b>{row.merchant || row.category}</b><small>{row.category} · {row.card}{row.time ? ` · ${row.time}` : ''}</small></span>
+          <span><b>{row.merchant || row.category}</b><small>{row.category} · {row.card}{row.time ? ` · ${row.time}` : ''}{row.performanceIncluded ? '' : ' · 실적 제외'}</small></span>
           <strong>{won(row.amount)}</strong>
         </div>)}</div>}
       </article>
