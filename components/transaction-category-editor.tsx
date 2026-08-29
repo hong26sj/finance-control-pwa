@@ -88,6 +88,7 @@ export function TransactionCategoryEditor() {
     const endpoint = localStorage.getItem('flow-drive-endpoint') || DEFAULT_APPS_SCRIPT_URL
     if (!token) { setError('Drive 인증이 필요합니다.'); return }
 
+    const previous = { ...row }
     const next: Transaction = {
       ...draft,
       id: row.id,
@@ -96,27 +97,30 @@ export function TransactionCategoryEditor() {
       merchantCategoryAmbiguous: false,
     }
 
-    setSaving(true)
+    // 화면은 즉시 반영하고 닫는다. Drive 저장은 뒤에서 수행한다.
+    const nextRows = readRows().map((item) => item.id === next.id ? next : item)
+    localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(nextRows))
+    window.dispatchEvent(new CustomEvent('flow-transactions-changed', { detail: { id: next.id, row: next } }))
+    setEditing(null)
+    setDraft(null)
     setError('')
+    setSaving(false)
+
     try {
       await upsertDriveTransactions(endpoint, token, [next])
       if (next.category !== '미분류') {
-        await saveMerchantRule(endpoint, token, {
+        void saveMerchantRule(endpoint, token, {
           transactionId: next.id,
           rawMerchant: next.merchant || undefined,
           merchantHash: next.merchantHash,
           category: next.category,
         }).catch(() => undefined)
       }
-      const nextRows = readRows().map((item) => item.id === next.id ? next : item)
-      localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(nextRows))
-      window.dispatchEvent(new CustomEvent('flow-transactions-changed', { detail: { id: next.id, row: next } }))
-      setEditing(null)
-      setDraft(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : '변경 저장에 실패했습니다.')
-    } finally {
-      setSaving(false)
+      const rolledBackRows = readRows().map((item) => item.id === previous.id ? previous : item)
+      localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(rolledBackRows))
+      window.dispatchEvent(new CustomEvent('flow-transactions-changed', { detail: { id: previous.id, row: previous, rollback: true } }))
+      alert(e instanceof Error ? `저장에 실패해 변경 전 상태로 되돌렸습니다.\n${e.message}` : '저장에 실패해 변경 전 상태로 되돌렸습니다.')
     }
   }
 
