@@ -6,6 +6,7 @@ import { TransactionBulkInteractions } from '@/components/transaction-bulk-inter
 import { FinancePolicyInteractions } from '@/components/finance-policy-interactions'
 import { CardDetailInteractions } from '@/components/card-detail-interactions'
 import { TransactionCategoryEditor } from '@/components/transaction-category-editor'
+import { CalendarUnclassifiedIndicator } from '@/components/calendar-unclassified-indicator'
 import './globals.css'
 import './mobile-fixes.css'
 import './budget-interactions.css'
@@ -39,7 +40,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="ko">
-      <body><PrivacyRuntime />{children}<BudgetInteractions /><FixedSectionInteractions /><TransactionBulkInteractions /><FinancePolicyInteractions /><CardDetailInteractions /><TransactionCategoryEditor /></body>
+      <body><PrivacyRuntime />{children}<BudgetInteractions /><FixedSectionInteractions /><TransactionBulkInteractions /><FinancePolicyInteractions /><CardDetailInteractions /><TransactionCategoryEditor /><CalendarUnclassifiedIndicator /></body>
     </html>
   )
 }
