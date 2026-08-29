@@ -1,0 +1,28 @@
+.pay-card{cursor:pointer}
+.pay-card:active{transform:translateY(1px)}
+.card-detail-backdrop{position:fixed;inset:0;z-index:1200;background:rgba(13,24,20,.48);display:flex;align-items:flex-end;justify-content:center;padding:20px}
+.card-detail-sheet{width:min(720px,100%);max-height:min(82vh,820px);background:#fff;border:1px solid #dfe5df;border-radius:30px;box-shadow:0 24px 80px rgba(14,30,24,.22);display:flex;flex-direction:column;overflow:hidden}
+.card-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:28px 28px 20px;border-bottom:1px solid #e3e8e3}
+.card-detail-head h2{margin:6px 0 4px;font-size:26px;line-height:1.15}
+.card-detail-head p{margin:0;color:#66776f;font-size:13px}
+.card-detail-head small{display:block;margin-top:5px;color:#819087;font-size:12px}
+.card-detail-close{flex:0 0 auto;font-size:32px;line-height:1;font-weight:300}
+.card-detail-list{overflow:auto;padding:0 28px 24px;-webkit-overflow-scrolling:touch}
+.card-detail-row{display:grid;grid-template-columns:116px minmax(0,1fr) auto;gap:16px;align-items:center;padding:18px 0;border-bottom:1px solid #e7ebe7}
+.card-detail-row:last-child{border-bottom:0}
+.card-detail-date b,.card-detail-merchant b{display:block;font-size:13px;color:#11231c}
+.card-detail-date small,.card-detail-merchant small{display:block;margin-top:5px;font-size:11px;color:#839087}
+.card-detail-row>strong{font-size:15px;white-space:nowrap;text-align:right}
+.card-detail-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+.card-detail-tags em{font-style:normal;font-size:10px;line-height:1;padding:5px 7px;border-radius:999px;background:#eaf3ee;color:#32644f}
+.card-detail-tags em.excluded{background:#f2efea;color:#7a7065}
+.card-detail-empty{padding:54px 10px;text-align:center;color:#87938d;font-size:13px}
+@media(max-width:700px){
+  .card-detail-backdrop{padding:0;align-items:flex-end}
+  .card-detail-sheet{width:100%;max-height:86vh;border-radius:28px 28px 0 0;border-bottom:0}
+  .card-detail-head{padding:22px 20px 16px}
+  .card-detail-head h2{font-size:22px}
+  .card-detail-list{padding:0 20px calc(24px + env(safe-area-inset-bottom))}
+  .card-detail-row{grid-template-columns:86px minmax(0,1fr) auto;gap:10px;padding:16px 0}
+  .card-detail-row>strong{font-size:14px}
+}
