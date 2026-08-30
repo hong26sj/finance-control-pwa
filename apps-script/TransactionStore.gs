@@ -66,6 +66,48 @@ function updateServerDetailItem_(details, raw, clean) {
   };
 }
 
+function patchServerTransaction_(raw, options) {
+  raw = raw || {};
+  options = options || {};
+  var clean = sanitizeTransaction_(raw);
+  var merchant = String(raw.merchant || '').trim();
+  if (!clean.merchantHash && merchant) clean.merchantHash = merchantFingerprint_(merchant);
+  var id = String(clean.id || '').trim();
+  if (!id) throw new Error('TRANSACTION_ID_REQUIRED');
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(2500)) throw new Error('LOCK_BUSY');
+  try {
+    var snapshot = readSnapshot_();
+    var index = -1;
+    for (var i = 0; i < snapshot.transactions.length; i += 1) {
+      if (String(snapshot.transactions[i].id) === id) { index = i; break; }
+    }
+    if (index < 0) throw new Error('TRANSACTION_NOT_FOUND');
+    snapshot.transactions[index] = clean;
+    writeServerSnapshot_(snapshot);
+
+    if (options.writeVault === true) {
+      var vault = readMerchantVault_();
+      updateServerVaultItem_(vault, raw, clean);
+      writeMerchantVault_(vault);
+    }
+
+    if (options.writeDetails === true) {
+      var details = readTransactionDetails_();
+      updateServerDetailItem_(details, raw, clean);
+      writeTransactionDetails_(details);
+    }
+
+    return {
+      saved: 1,
+      version: snapshot.version,
+      updatedAt: snapshot.updatedAt,
+      writes: 1 + (options.writeVault === true ? 1 : 0) + (options.writeDetails === true ? 1 : 0)
+    };
+  } finally { lock.releaseLock(); }
+}
+
 function upsertServerTransactions_(items) {
   items = Array.isArray(items) ? items.slice(0, 2000) : [];
   if (!items.length) return { saved: 0 };
