@@ -49,7 +49,7 @@ async function requestNow(endpoint: string, authToken: string, body: Record<stri
         const error = new Error(message)
         if (attempt < 2 && isLockConflict(message)) {
           lastError = error
-          await sleep(attempt === 0 ? 350 : 900)
+          await sleep(attempt === 0 ? 250 : 650)
           continue
         }
         throw error
@@ -59,7 +59,7 @@ async function requestNow(endpoint: string, authToken: string, body: Record<stri
       const normalized = error instanceof Error ? error : new Error('Google Drive 연결에 실패했습니다.')
       if (attempt < 2 && isLockConflict(normalized.message)) {
         lastError = normalized
-        await sleep(attempt === 0 ? 350 : 900)
+        await sleep(attempt === 0 ? 250 : 650)
         continue
       }
       throw normalized
@@ -125,6 +125,19 @@ export async function checkDriveAuth(endpoint: string, authToken: string) {
 
 export async function loadDriveSnapshot(endpoint: string, authToken: string): Promise<FinanceSnapshot> {
   return fetchSnapshot(endpoint, authToken)
+}
+
+export async function patchDriveTransaction(endpoint: string, authToken: string, item: Transaction, options: { writeVault?: boolean; writeDetails?: boolean } = {}) {
+  return enqueueMutation(async () => {
+    const result = await requestNow(endpoint, authToken, {
+      action: 'transaction.patchOne',
+      item,
+      writeVault: options.writeVault === true,
+      writeDetails: options.writeDetails === true,
+    })
+    invalidateSnapshotCache()
+    return result.result as { saved: number; version?: number; updatedAt?: string; writes?: number }
+  })
 }
 
 export async function upsertDriveTransactions(endpoint: string, authToken: string, items: Transaction[]) {
