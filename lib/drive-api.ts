@@ -13,30 +13,76 @@ export type FinanceSnapshot = { version?: number; privacyVersion?: number; updat
 export type MerchantResolution = { merchant: string; merchantHash: string; rule?: MerchantRule }
 export type MerchantVaultItem = { id: string; merchant: string; merchantHash?: string; category?: string }
 
-let requestTail: Promise<void> = Promise.resolve()
+let mutationTail: Promise<void> = Promise.resolve()
+let recentSnapshot: { key: string; at: number; value: FinanceSnapshot } | null = null
+const SNAPSHOT_CACHE_MS = 5000
 
-function enqueueRequest<T>(task: () => Promise<T>): Promise<T> {
-  const run = requestTail.then(task, task)
-  requestTail = run.then(() => undefined, () => undefined)
+function enqueueMutation<T>(task: () => Promise<T>): Promise<T> {
+  const run = mutationTail.then(task, task)
+  mutationTail = run.then(() => undefined, () => undefined)
   return run
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+function isLockConflict(message: string) {
+  const value = String(message || '').toLowerCase()
+  return value.includes('잠금') || value.includes('lock') || value.includes('시간초과') || value.includes('timeout')
 }
 
 async function requestNow(endpoint: string, authToken: string, body: Record<string, unknown>) {
   const target = endpoint.trim() || DEFAULT_APPS_SCRIPT_URL
-  const response = await fetch(target, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ ...body, auth_token: authToken }),
-    keepalive: true,
-  })
-  const result = await response.json().catch(() => null)
-  if (!result) throw new Error('Apps Script 응답을 확인할 수 없습니다.')
-  if (!result.ok) throw new Error(result.error === 'UNAUTHORIZED' ? '인증이 필요합니다.' : (result.message || result.error || 'Google Drive 연결에 실패했습니다.'))
-  return result
+  let lastError: Error | null = null
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch(target, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ ...body, auth_token: authToken }),
+        keepalive: true,
+      })
+      const result = await response.json().catch(() => null)
+      if (!result) throw new Error('Apps Script 응답을 확인할 수 없습니다.')
+      if (!result.ok) {
+        const message = result.error === 'UNAUTHORIZED' ? '인증이 필요합니다.' : (result.message || result.error || 'Google Drive 연결에 실패했습니다.')
+        const error = new Error(message)
+        if (attempt < 2 && isLockConflict(message)) {
+          lastError = error
+          await sleep(attempt === 0 ? 350 : 900)
+          continue
+        }
+        throw error
+      }
+      return result
+    } catch (error) {
+      const normalized = error instanceof Error ? error : new Error('Google Drive 연결에 실패했습니다.')
+      if (attempt < 2 && isLockConflict(normalized.message)) {
+        lastError = normalized
+        await sleep(attempt === 0 ? 350 : 900)
+        continue
+      }
+      throw normalized
+    }
+  }
+  throw lastError || new Error('Google Drive 연결에 실패했습니다.')
 }
 
-async function request(endpoint: string, authToken: string, body: Record<string, unknown>) {
-  return enqueueRequest(() => requestNow(endpoint, authToken, body))
+function snapshotKey(endpoint: string, authToken: string) {
+  return `${endpoint.trim() || DEFAULT_APPS_SCRIPT_URL}|${authToken}`
+}
+
+async function fetchSnapshot(endpoint: string, authToken: string): Promise<FinanceSnapshot> {
+  const key = snapshotKey(endpoint, authToken)
+  const now = Date.now()
+  if (recentSnapshot && recentSnapshot.key === key && now - recentSnapshot.at < SNAPSHOT_CACHE_MS) return recentSnapshot.value
+  const snapshot = (await requestNow(endpoint, authToken, { action: 'snapshot.get' })).snapshot as FinanceSnapshot
+  recentSnapshot = { key, at: now, value: snapshot }
+  return snapshot
+}
+
+function invalidateSnapshotCache() {
+  recentSnapshot = null
 }
 
 export const privateTransactionsForDrive = (items: Transaction[]): DriveTransaction[] => items.map((item) => ({
@@ -68,30 +114,40 @@ export const restoreDriveTransactions = (items: DriveTransaction[], _legacyLocal
 }))
 
 export async function loginDrive(endpoint: string, password: string): Promise<{ authToken: string; expiresAt: string }> {
-  const result = await request(endpoint, '', { action: 'login', password })
+  const result = await requestNow(endpoint, '', { action: 'login', password })
   return { authToken: result.auth_token, expiresAt: result.expires_at }
 }
 
 export async function checkDriveAuth(endpoint: string, authToken: string) {
-  return request(endpoint, authToken, { action: 'auth.check' })
+  await fetchSnapshot(endpoint, authToken)
+  return { ok: true }
 }
 
 export async function loadDriveSnapshot(endpoint: string, authToken: string): Promise<FinanceSnapshot> {
-  return (await request(endpoint, authToken, { action: 'snapshot.get' })).snapshot as FinanceSnapshot
+  return fetchSnapshot(endpoint, authToken)
 }
 
 export async function upsertDriveTransactions(endpoint: string, authToken: string, items: Transaction[]) {
   if (!items.length) return
-  await request(endpoint, authToken, { action: 'transaction.upsertMany', items })
+  await enqueueMutation(async () => {
+    await requestNow(endpoint, authToken, { action: 'transaction.upsertMany', items })
+    invalidateSnapshotCache()
+  })
 }
 
 export async function deleteDriveTransactions(endpoint: string, authToken: string, ids: string[]) {
   if (!ids.length) return
-  await request(endpoint, authToken, { action: 'transaction.deleteMany', ids })
+  await enqueueMutation(async () => {
+    await requestNow(endpoint, authToken, { action: 'transaction.deleteMany', ids })
+    invalidateSnapshotCache()
+  })
 }
 
 export async function saveDriveConfig(endpoint: string, authToken: string, input: { loans?: Loan[]; fixedPlans?: FixedPlan[]; settings?: FinanceSettings; cashFlow?: number }) {
-  await request(endpoint, authToken, { action: 'config.save', ...input })
+  await enqueueMutation(async () => {
+    await requestNow(endpoint, authToken, { action: 'config.save', ...input })
+    invalidateSnapshotCache()
+  })
 }
 
 export async function saveDriveSnapshot(endpoint: string, authToken: string, snapshot: FinanceSnapshot): Promise<FinanceSnapshot> {
@@ -103,25 +159,34 @@ export async function saveDriveSnapshot(endpoint: string, authToken: string, sna
 
 export async function resolveMerchantRules(endpoint: string, authToken: string, merchants: string[]): Promise<MerchantResolution[]> {
   if (!merchants.length) return []
-  const result = await request(endpoint, authToken, { action: 'merchant.resolve', merchants })
+  const result = await requestNow(endpoint, authToken, { action: 'merchant.resolve', merchants })
   return Array.isArray(result.items) ? result.items : []
 }
 
 export async function saveMerchantRule(endpoint: string, authToken: string, input: { transactionId: string; rawMerchant?: string; merchantHash?: string; category: string }): Promise<{ merchantHash: string; rule: MerchantRule }> {
-  const result = await request(endpoint, authToken, { action: 'merchant.rule.save', ...input })
-  return { merchantHash: result.merchantHash, rule: result.rule }
+  return enqueueMutation(async () => {
+    const result = await requestNow(endpoint, authToken, { action: 'merchant.rule.save', ...input })
+    invalidateSnapshotCache()
+    return { merchantHash: result.merchantHash, rule: result.rule }
+  })
 }
 
 export async function saveTransactionMerchants(endpoint: string, authToken: string, items: MerchantVaultItem[]) {
   if (!items.length) return
-  await request(endpoint, authToken, { action: 'transaction.merchant.saveMany', items })
+  await enqueueMutation(async () => {
+    await requestNow(endpoint, authToken, { action: 'transaction.merchant.saveMany', items })
+    invalidateSnapshotCache()
+  })
 }
 
 export async function getTransactionMerchant(endpoint: string, authToken: string, transactionId: string): Promise<string> {
-  const result = await request(endpoint, authToken, { action: 'transaction.merchant.get', transactionId })
+  const result = await requestNow(endpoint, authToken, { action: 'transaction.merchant.get', transactionId })
   return String(result.merchant || '')
 }
 
 export async function deleteTransactionMerchant(endpoint: string, authToken: string, transactionId: string) {
-  await request(endpoint, authToken, { action: 'transaction.merchant.delete', transactionId })
+  await enqueueMutation(async () => {
+    await requestNow(endpoint, authToken, { action: 'transaction.merchant.delete', transactionId })
+    invalidateSnapshotCache()
+  })
 }
