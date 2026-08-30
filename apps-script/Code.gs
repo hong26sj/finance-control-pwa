@@ -46,6 +46,7 @@ function doPost(e) {
       }
       return json_({ ok: true, snapshot: snapshot });
     }
+    if (body.action === 'transaction.patchOne') return json_({ ok: true, result: patchServerTransaction_(body.item || {}, { writeVault: body.writeVault === true, writeDetails: body.writeDetails === true }) });
     if (body.action === 'transaction.upsertMany') return json_({ ok: true, result: upsertServerTransactions_(body.items || []) });
     if (body.action === 'transaction.deleteMany') return json_({ ok: true, result: deleteServerTransactions_(body.ids || []) });
     if (body.action === 'transaction.details.get') return json_({ ok: true, items: getServerTransactionDetails_(body.ids || []) });
