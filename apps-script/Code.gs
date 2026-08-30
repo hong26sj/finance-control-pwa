@@ -6,6 +6,15 @@ function doGet(e) {
   return json_({ ok: true, service: 'Flow Finance API', authenticationRequired: true });
 }
 
+function ensureSnapshotMigrations_() {
+  var properties = PropertiesService.getScriptProperties();
+  if (properties.getProperty('SNAPSHOT_MIGRATIONS_V3_DONE') === '1') return;
+  migrateShortcutInboxToSnapshot_();
+  migrateShortcutClassificationV2_();
+  migrateShortcutAutoClassificationV3_();
+  properties.setProperty('SNAPSHOT_MIGRATIONS_V3_DONE', '1');
+}
+
 function doPost(e) {
   try {
     var body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
@@ -17,9 +26,7 @@ function doPost(e) {
     if (body.action === 'auth.check') return json_({ ok: true, expires_at: auth.expires_at || null });
     if (body.action === 'snapshot.save') return json_({ ok: true, snapshot: saveSnapshot_(body.snapshot || defaultSnapshot_()) });
     if (body.action === 'snapshot.get') {
-      migrateShortcutInboxToSnapshot_();
-      migrateShortcutClassificationV2_();
-      migrateShortcutAutoClassificationV3_();
+      ensureSnapshotMigrations_();
       var snapshot = readSnapshotForClient_();
       var ids = snapshot.transactions.map(function (item) { return item.id; }).filter(Boolean);
       if (ids.length) {
