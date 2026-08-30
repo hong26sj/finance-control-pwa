@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { CATEGORIES, Transaction, won } from '@/lib/finance'
-import { DEFAULT_APPS_SCRIPT_URL, deleteDriveTransactions, deleteTransactionMerchant, patchDriveTransaction } from '@/lib/drive-api'
+import { DEFAULT_APPS_SCRIPT_URL, deleteDriveTransactions, deleteTransactionMerchant, patchDriveTransaction, saveMerchantRule } from '@/lib/drive-api'
 
 const TRANSACTIONS_KEY = 'flow-preview-transactions'
 
@@ -104,42 +104,53 @@ export function TransactionCategoryEditor() {
       fixed: kind === 'fixed',
       merchantCategoryAmbiguous: false,
     }
-    const writeVault = previous.merchant !== next.merchant || previous.merchantHash !== next.merchantHash || previous.category !== next.category
+    const merchantChanged = previous.merchant !== next.merchant || previous.merchantHash !== next.merchantHash
+    const categoryChanged = previous.category !== next.category
     const writeDetails = (previous.time || '') !== (next.time || '') || (previous.source || '') !== (next.source || '') || (previous.memo || '') !== (next.memo || '') || previous.cashAdvance !== next.cashAdvance
 
     setSaving(true)
     setError('')
-    setSaveProgress(8)
+    setSaveProgress(10)
     setSaveStage('변경사항 준비 중')
 
+    // 명시적 저장 경로를 사용하므로 PrivacyRuntime의 자동 저장을 잠시 막아 중복 Drive 쓰기를 방지한다.
+    window.dispatchEvent(new Event('flow-explicit-transaction-write'))
     const nextRows = readRows().map((item) => item.id === next.id ? next : item)
     localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(nextRows))
     window.dispatchEvent(new CustomEvent('flow-transactions-changed', { detail: { id: next.id, row: next } }))
 
-    await wait(80)
-    setSaveProgress(22)
-    setSaveStage('Drive 저장 요청 중')
+    await wait(40)
+    setSaveProgress(35)
+    setSaveStage('Drive 전송 중')
 
     const timer = window.setInterval(() => {
-      setSaveProgress((current) => {
-        if (current >= 88) return current
-        const nextValue = Math.min(88, current + (current < 55 ? 7 : 3))
-        if (nextValue >= 65) setSaveStage('Drive 반영 확인 중')
-        else if (nextValue >= 38) setSaveStage('거래 정보 저장 중')
-        return nextValue
-      })
-    }, 180)
+      setSaveProgress((current) => current >= 86 ? current : Math.min(86, current + (current < 60 ? 8 : 3)))
+    }, 160)
 
     try {
-      await patchDriveTransaction(endpoint, token, next, { writeVault, writeDetails })
+      // 카테고리만 바뀐 경우 merchant vault는 즉시 저장하지 않는다.
+      // 핵심 거래 데이터 저장을 먼저 끝낸 뒤 분류 학습 정보는 백그라운드에서 갱신한다.
+      setSaveStage('거래내역 저장 중')
+      await patchDriveTransaction(endpoint, token, next, { writeVault: merchantChanged, writeDetails })
       window.clearInterval(timer)
       setSaveProgress(100)
       setSaveStage('저장 완료')
-      await wait(280)
+
+      if (categoryChanged && next.category !== '미분류' && !merchantChanged) {
+        void saveMerchantRule(endpoint, token, {
+          transactionId: next.id,
+          rawMerchant: next.merchant || undefined,
+          merchantHash: next.merchantHash,
+          category: next.category,
+        }).catch(() => undefined)
+      }
+
+      await wait(180)
       setEditing(null)
       setDraft(null)
     } catch (e) {
       window.clearInterval(timer)
+      window.dispatchEvent(new Event('flow-explicit-transaction-write'))
       const rolledBackRows = readRows().map((item) => item.id === previous.id ? previous : item)
       localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(rolledBackRows))
       window.dispatchEvent(new CustomEvent('flow-transactions-changed', { detail: { id: previous.id, row: previous, rollback: true } }))
@@ -162,6 +173,7 @@ export function TransactionCategoryEditor() {
     try {
       await deleteDriveTransactions(endpoint, token, [row.id])
       await deleteTransactionMerchant(endpoint, token, row.id).catch(() => undefined)
+      window.dispatchEvent(new Event('flow-explicit-transaction-write'))
       localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(readRows().filter((item) => item.id !== row.id)))
       window.dispatchEvent(new CustomEvent('flow-transactions-changed', { detail: { id: row.id, deleted: true } }))
       setEditing(null)
