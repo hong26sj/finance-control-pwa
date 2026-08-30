@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { CATEGORIES, Transaction, won } from '@/lib/finance'
-import { DEFAULT_APPS_SCRIPT_URL, deleteDriveTransactions, deleteTransactionMerchant, upsertDriveTransactions } from '@/lib/drive-api'
+import { DEFAULT_APPS_SCRIPT_URL, deleteDriveTransactions, deleteTransactionMerchant, patchDriveTransaction } from '@/lib/drive-api'
 
 const TRANSACTIONS_KEY = 'flow-preview-transactions'
 
@@ -45,6 +45,8 @@ function resolveBudgetRow(target: HTMLElement, rows: Transaction[]) {
   return id ? rows.find((row) => row.id === id) || null : null
 }
 
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
 export function TransactionCategoryEditor() {
   const [editing, setEditing] = useState<EditorState | null>(null)
   const [draft, setDraft] = useState<Transaction | null>(null)
@@ -52,6 +54,8 @@ export function TransactionCategoryEditor() {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
+  const [saveProgress, setSaveProgress] = useState(0)
+  const [saveStage, setSaveStage] = useState('')
 
   const row = editing?.row || null
   const title = useMemo(() => draft ? `${draft.merchant || '가맹점 정보 없음'} · ${won(draft.amount)}` : '', [draft])
@@ -68,6 +72,8 @@ export function TransactionCategoryEditor() {
       setDraft({ ...resolved })
       setKind(resolved.fixed ? 'fixed' : 'living')
       setError('')
+      setSaveProgress(0)
+      setSaveStage('')
     }
     document.addEventListener('click', onClick)
     return () => document.removeEventListener('click', onClick)
@@ -78,10 +84,12 @@ export function TransactionCategoryEditor() {
     setEditing(null)
     setDraft(null)
     setError('')
+    setSaveProgress(0)
+    setSaveStage('')
   }
 
   const save = async () => {
-    if (!row || !draft) return
+    if (!row || !draft || saving) return
     if (!draft.merchant.trim()) { setError('가맹점명을 입력하세요.'); return }
     if (!draft.amount || draft.amount <= 0) { setError('금액을 확인하세요.'); return }
     const token = localStorage.getItem('flow-drive-token') || ''
@@ -96,25 +104,50 @@ export function TransactionCategoryEditor() {
       fixed: kind === 'fixed',
       merchantCategoryAmbiguous: false,
     }
+    const writeVault = previous.merchant !== next.merchant || previous.merchantHash !== next.merchantHash || previous.category !== next.category
+    const writeDetails = (previous.time || '') !== (next.time || '') || (previous.source || '') !== (next.source || '') || (previous.memo || '') !== (next.memo || '') || previous.cashAdvance !== next.cashAdvance
 
-    // 화면은 즉시 반영하고 닫는다. Drive 저장은 직렬화된 요청 큐에서 뒤에서 수행한다.
+    setSaving(true)
+    setError('')
+    setSaveProgress(8)
+    setSaveStage('변경사항 준비 중')
+
     const nextRows = readRows().map((item) => item.id === next.id ? next : item)
     localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(nextRows))
     window.dispatchEvent(new CustomEvent('flow-transactions-changed', { detail: { id: next.id, row: next } }))
-    setEditing(null)
-    setDraft(null)
-    setError('')
-    setSaving(false)
+
+    await wait(80)
+    setSaveProgress(22)
+    setSaveStage('Drive 저장 요청 중')
+
+    const timer = window.setInterval(() => {
+      setSaveProgress((current) => {
+        if (current >= 88) return current
+        const nextValue = Math.min(88, current + (current < 55 ? 7 : 3))
+        if (nextValue >= 65) setSaveStage('Drive 반영 확인 중')
+        else if (nextValue >= 38) setSaveStage('거래 정보 저장 중')
+        return nextValue
+      })
+    }, 180)
 
     try {
-      // upsert가 거래 원본과 가맹점 vault의 category를 함께 갱신하므로
-      // 별도의 merchant.rule.save 요청을 다시 보내지 않는다.
-      await upsertDriveTransactions(endpoint, token, [next])
+      await patchDriveTransaction(endpoint, token, next, { writeVault, writeDetails })
+      window.clearInterval(timer)
+      setSaveProgress(100)
+      setSaveStage('저장 완료')
+      await wait(280)
+      setEditing(null)
+      setDraft(null)
     } catch (e) {
+      window.clearInterval(timer)
       const rolledBackRows = readRows().map((item) => item.id === previous.id ? previous : item)
       localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(rolledBackRows))
       window.dispatchEvent(new CustomEvent('flow-transactions-changed', { detail: { id: previous.id, row: previous, rollback: true } }))
-      alert(e instanceof Error ? `저장에 실패해 변경 전 상태로 되돌렸습니다.\n${e.message}` : '저장에 실패해 변경 전 상태로 되돌렸습니다.')
+      setSaveProgress(0)
+      setSaveStage('')
+      setError(e instanceof Error ? `저장에 실패했습니다. ${e.message}` : '저장에 실패했습니다.')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -145,32 +178,36 @@ export function TransactionCategoryEditor() {
 
   return <div className="transaction-category-editor-backdrop" onMouseDown={close}>
     <section className="transaction-category-editor" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-      <header><div><span className="eyebrow">TRANSACTION</span><h2>거래 수정</h2><p>{title}</p></div><button type="button" onClick={close} aria-label="닫기">×</button></header>
+      <header><div><span className="eyebrow">TRANSACTION</span><h2>거래 수정</h2><p>{title}</p></div><button type="button" onClick={close} aria-label="닫기" disabled={saving}>×</button></header>
 
       <div className="transaction-editor-grid two">
-        <label>날짜<input type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} /></label>
-        <label>시간<input type="time" value={draft.time || ''} onChange={(e) => setDraft({ ...draft, time: e.target.value })} /></label>
+        <label>날짜<input type="date" value={draft.date} disabled={saving} onChange={(e) => setDraft({ ...draft, date: e.target.value })} /></label>
+        <label>시간<input type="time" value={draft.time || ''} disabled={saving} onChange={(e) => setDraft({ ...draft, time: e.target.value })} /></label>
       </div>
-      <label>가맹점<input value={draft.merchant || ''} onChange={(e) => setDraft({ ...draft, merchant: e.target.value })} placeholder="가맹점명" /></label>
+      <label>가맹점<input value={draft.merchant || ''} disabled={saving} onChange={(e) => setDraft({ ...draft, merchant: e.target.value })} placeholder="가맹점명" /></label>
       <div className="transaction-editor-grid two">
-        <label>금액<input inputMode="numeric" value={draft.amount ? draft.amount.toLocaleString('ko-KR') : ''} onChange={(e) => setDraft({ ...draft, amount: Number(e.target.value.replace(/[^0-9]/g, '')) || 0 })} /></label>
-        <label>결제수단<select value={draft.card} onChange={(e) => setDraft({ ...draft, card: e.target.value })}>{cardOptions.map((item) => <option key={item}>{item}</option>)}</select></label>
+        <label>금액<input inputMode="numeric" value={draft.amount ? draft.amount.toLocaleString('ko-KR') : ''} disabled={saving} onChange={(e) => setDraft({ ...draft, amount: Number(e.target.value.replace(/[^0-9]/g, '')) || 0 })} /></label>
+        <label>결제수단<select value={draft.card} disabled={saving} onChange={(e) => setDraft({ ...draft, card: e.target.value })}>{cardOptions.map((item) => <option key={item}>{item}</option>)}</select></label>
       </div>
-      <label>카테고리<select value={draft.category} onChange={(event) => { const value = event.target.value; setDraft({ ...draft, category: value }); if (value === '고정비') setKind('fixed') }}><option value="미분류">미분류</option>{CATEGORIES.filter((item) => item !== '미분류').map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+      <label>카테고리<select value={draft.category} disabled={saving} onChange={(event) => { const value = event.target.value; setDraft({ ...draft, category: value }); if (value === '고정비') setKind('fixed') }}><option value="미분류">미분류</option>{CATEGORIES.filter((item) => item !== '미분류').map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
 
-      <fieldset><legend>구분</legend><label><input type="radio" name="transaction-kind" checked={kind === 'living'} onChange={() => setKind('living')} />생활비</label><label><input type="radio" name="transaction-kind" checked={kind === 'fixed'} onChange={() => setKind('fixed')} />고정비</label></fieldset>
+      <fieldset disabled={saving}><legend>구분</legend><label><input type="radio" name="transaction-kind" checked={kind === 'living'} onChange={() => setKind('living')} />생활비</label><label><input type="radio" name="transaction-kind" checked={kind === 'fixed'} onChange={() => setKind('fixed')} />고정비</label></fieldset>
 
       <div className="transaction-editor-checks">
-        <label><input type="checkbox" checked={draft.performanceIncluded} onChange={(e) => setDraft({ ...draft, performanceIncluded: e.target.checked })} />카드 실적 포함</label>
-        <label><input type="checkbox" checked={draft.cashFlow} onChange={(e) => setDraft({ ...draft, cashFlow: e.target.checked })} />현금흐름 반영</label>
+        <label><input type="checkbox" checked={draft.performanceIncluded} disabled={saving} onChange={(e) => setDraft({ ...draft, performanceIncluded: e.target.checked })} />카드 실적 포함</label>
+        <label><input type="checkbox" checked={draft.cashFlow} disabled={saving} onChange={(e) => setDraft({ ...draft, cashFlow: e.target.checked })} />현금흐름 반영</label>
       </div>
 
-      <label>메모<input value={draft.memo || ''} onChange={(e) => setDraft({ ...draft, memo: e.target.value })} placeholder="선택 사항" /></label>
+      <label>메모<input value={draft.memo || ''} disabled={saving} onChange={(e) => setDraft({ ...draft, memo: e.target.value })} placeholder="선택 사항" /></label>
 
+      {saving && <div className="transaction-save-progress" role="status" aria-live="polite">
+        <div><span>{saveStage}</span><b>{saveProgress}%</b></div>
+        <div className="transaction-save-progress-track"><i style={{ width: `${saveProgress}%` }} /></div>
+      </div>}
       {error && <p className="transaction-editor-error">{error}</p>}
       <div className="transaction-editor-actions">
         <button className="transaction-editor-delete" type="button" disabled={saving || deleting} onClick={() => void deleteRow()}>{deleting ? '삭제 중…' : '삭제'}</button>
-        <button className="primary" type="button" disabled={saving || deleting} onClick={() => void save()}>{saving ? '저장 중…' : '변경 저장'}</button>
+        <button className="primary" type="button" disabled={saving || deleting} onClick={() => void save()}>{saving ? `저장 중 ${saveProgress}%` : '변경 저장'}</button>
       </div>
     </section>
   </div>
