@@ -41,6 +41,10 @@ function sameRow(a: Transaction, b: Transaction) {
   return JSON.stringify(a) === JSON.stringify(b)
 }
 
+function reportProgress(progress: number, stage: string, state: 'saving' | 'done' | 'error' = 'saving') {
+  window.dispatchEvent(new CustomEvent('flow-drive-save-progress', { detail: { progress, stage, state } }))
+}
+
 export function PrivacyRuntime() {
   useLayoutEffect(() => {
     const originalGetItem = Storage.prototype.getItem
@@ -52,6 +56,7 @@ export function PrivacyRuntime() {
     let hydrationTimer: number | undefined
     let configTimer: number | undefined
     let suspendUntil = 0
+    let explicitTransactionWriteUntil = 0
 
     const realLocalGet = (key: string) => originalGetItem.call(window.localStorage, key)
     const getAuth = () => ({
@@ -66,9 +71,10 @@ export function PrivacyRuntime() {
     }
 
     const suspended = () => Date.now() < suspendUntil
+    const explicitTransactionWrite = () => Date.now() < explicitTransactionWriteUntil
 
     const persistTransactionDiff = (previousValue: string | null, nextValue: string) => {
-      if (!serverReady || suspended()) return
+      if (!serverReady || suspended() || explicitTransactionWrite()) return
       const { token, endpoint } = getAuth()
       if (!token) return
       const previous = parseRows(previousValue)
@@ -80,8 +86,19 @@ export function PrivacyRuntime() {
         return !before || !sameRow(before, row)
       })
       const deletedIds = previous.filter((row) => !nextById.has(row.id)).map((row) => row.id)
-      if (upserts.length) void upsertDriveTransactions(endpoint, token, upserts).catch(() => undefined)
-      if (deletedIds.length) void deleteDriveTransactions(endpoint, token, deletedIds).catch(() => undefined)
+      if (!upserts.length && !deletedIds.length) return
+
+      reportProgress(12, '변경사항 준비 중')
+      window.setTimeout(() => reportProgress(36, 'Drive 전송 중'), 80)
+      const tasks: Promise<unknown>[] = []
+      if (upserts.length) tasks.push(upsertDriveTransactions(endpoint, token, upserts))
+      if (deletedIds.length) tasks.push(deleteDriveTransactions(endpoint, token, deletedIds))
+      window.setTimeout(() => reportProgress(72, '거래내역 저장 중'), 220)
+      Promise.all(tasks).then(() => {
+        reportProgress(100, '저장 완료', 'done')
+      }).catch((error) => {
+        reportProgress(0, error instanceof Error ? error.message : '저장 실패', 'error')
+      })
     }
 
     const persistConfig = () => {
@@ -134,7 +151,7 @@ export function PrivacyRuntime() {
       if (this === window.localStorage && FINANCE_KEYS.has(key)) {
         const previous = memory.get(key) ?? null
         memory.delete(key)
-        if (key === TRANSACTIONS_KEY && previous && serverReady && !suspended()) {
+        if (key === TRANSACTIONS_KEY && previous && serverReady && !suspended() && !explicitTransactionWrite()) {
           const { token, endpoint } = getAuth()
           const ids = parseRows(previous).map((row) => row.id)
           if (token && ids.length) void deleteDriveTransactions(endpoint, token, ids).catch(() => undefined)
@@ -145,6 +162,7 @@ export function PrivacyRuntime() {
     }
 
     const suspendForRemoteLoad = () => { suspendUntil = Date.now() + 3500 }
+    const onExplicitTransactionWrite = () => { explicitTransactionWriteUntil = Date.now() + 6000 }
     const onClickCapture = (event: MouseEvent) => {
       const button = (event.target as HTMLElement | null)?.closest('button')
       const text = button?.textContent?.trim() || ''
@@ -156,6 +174,7 @@ export function PrivacyRuntime() {
     document.addEventListener('click', onClickCapture, true)
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('pageshow', onPageShow)
+    window.addEventListener('flow-explicit-transaction-write', onExplicitTransactionWrite)
 
     const authWatcher = window.setInterval(() => {
       const state = document.querySelector<HTMLElement>('.sidebar .sync b')?.textContent?.trim() || ''
@@ -169,6 +188,7 @@ export function PrivacyRuntime() {
       document.removeEventListener('click', onClickCapture, true)
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('pageshow', onPageShow)
+      window.removeEventListener('flow-explicit-transaction-write', onExplicitTransactionWrite)
       Storage.prototype.getItem = originalGetItem
       Storage.prototype.setItem = originalSetItem
       Storage.prototype.removeItem = originalRemoveItem
