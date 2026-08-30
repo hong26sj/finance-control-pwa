@@ -64,6 +64,7 @@ export function TransactionCategoryEditor() {
     const onClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null
       if (!target || target.closest('.transaction-category-editor')) return
+      if (target.closest('.calendar-bulk-toolbar,.calendar-bulk-check,.calendar-row-check')) return
       if (!target.closest('.calendar-day-list > div,.card-detail-row,.budget-detail-row')) return
       const rows = readRows()
       const resolved = resolveCalendarRow(target, rows) || resolveCardRow(target, rows) || resolveBudgetRow(target, rows)
@@ -113,7 +114,6 @@ export function TransactionCategoryEditor() {
     setSaveProgress(10)
     setSaveStage('변경사항 준비 중')
 
-    // 명시적 저장 경로를 사용하므로 PrivacyRuntime의 자동 저장을 잠시 막아 중복 Drive 쓰기를 방지한다.
     window.dispatchEvent(new Event('flow-explicit-transaction-write'))
     const nextRows = readRows().map((item) => item.id === next.id ? next : item)
     localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(nextRows))
@@ -128,8 +128,6 @@ export function TransactionCategoryEditor() {
     }, 160)
 
     try {
-      // 카테고리만 바뀐 경우 merchant vault는 즉시 저장하지 않는다.
-      // 핵심 거래 데이터 저장을 먼저 끝낸 뒤 분류 학습 정보는 백그라운드에서 갱신한다.
       setSaveStage('거래내역 저장 중')
       await patchDriveTransaction(endpoint, token, next, { writeVault: merchantChanged, writeDetails })
       window.clearInterval(timer)
