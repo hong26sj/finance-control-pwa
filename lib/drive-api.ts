@@ -12,6 +12,7 @@ export type DriveTransaction = Pick<Transaction, 'id' | 'date' | 'card' | 'amoun
 export type FinanceSnapshot = { version?: number; privacyVersion?: number; updatedAt?: string; transactions: DriveTransaction[]; loans: Loan[]; fixedPlans: FixedPlan[]; settings: FinanceSettings; cashFlow: number }
 export type MerchantResolution = { merchant: string; merchantHash: string; rule?: MerchantRule }
 export type MerchantVaultItem = { id: string; merchant: string; merchantHash?: string; category?: string }
+export type DriveTransactionDetail = { id: string; time?: string; source?: string; memo?: string; cashAdvance?: boolean }
 
 let mutationTail: Promise<void> = Promise.resolve()
 let recentSnapshot: { key: string; at: number; value: FinanceSnapshot } | null = null
@@ -125,6 +126,12 @@ export async function checkDriveAuth(endpoint: string, authToken: string) {
 
 export async function loadDriveSnapshot(endpoint: string, authToken: string): Promise<FinanceSnapshot> {
   return fetchSnapshot(endpoint, authToken)
+}
+
+export async function getDriveTransactionDetails(endpoint: string, authToken: string, ids: string[]): Promise<DriveTransactionDetail[]> {
+  if (!ids.length) return []
+  const result = await requestNow(endpoint, authToken, { action: 'transaction.details.get', ids: ids.slice(0, 200) })
+  return Array.isArray(result.items) ? result.items : []
 }
 
 export async function patchDriveTransaction(endpoint: string, authToken: string, item: Transaction, options: { writeVault?: boolean; writeDetails?: boolean } = {}) {
