@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { CATEGORIES, Transaction, won } from '@/lib/finance'
-import { DEFAULT_APPS_SCRIPT_URL, deleteDriveTransactions, deleteTransactionMerchant, patchDriveTransaction, saveMerchantRule } from '@/lib/drive-api'
+import { DEFAULT_APPS_SCRIPT_URL, deleteDriveTransactions, deleteTransactionMerchant, getDriveTransactionDetails, patchDriveTransaction, saveMerchantRule } from '@/lib/drive-api'
 
 const TRANSACTIONS_KEY = 'flow-preview-transactions'
 
@@ -75,6 +75,19 @@ export function TransactionCategoryEditor() {
       setError('')
       setSaveProgress(0)
       setSaveStage('')
+
+      // Initial app hydration intentionally skips the protected detail file for speed.
+      // Fetch only this transaction's time/source/memo when the editor is actually opened.
+      const token = localStorage.getItem('flow-drive-token') || ''
+      const endpoint = localStorage.getItem('flow-drive-endpoint') || DEFAULT_APPS_SCRIPT_URL
+      if (token && resolved.id) {
+        void getDriveTransactionDetails(endpoint, token, [resolved.id]).then((items) => {
+          const detail = items[0]
+          if (!detail || String(detail.id) !== resolved.id) return
+          setEditing((current) => current?.row.id === resolved.id ? { ...current, row: { ...current.row, time: detail.time || current.row.time || '', source: detail.source || current.row.source || 'Drive', memo: detail.memo || '', cashAdvance: detail.cashAdvance === true } } : current)
+          setDraft((current) => current?.id === resolved.id ? { ...current, time: detail.time || current.time || '', source: detail.source || current.source || 'Drive', memo: detail.memo || '', cashAdvance: detail.cashAdvance === true } : current)
+        }).catch(() => undefined)
+      }
     }
     document.addEventListener('click', onClick)
     return () => document.removeEventListener('click', onClick)
