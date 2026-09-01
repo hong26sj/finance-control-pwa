@@ -25,20 +25,21 @@
 @media(max-width:700px){
   .fixed-section.fixed-collapsible>.section-head{padding:13px 14px;min-height:58px}
   .fixed-section.fixed-collapsible>.section-head>div:first-child p{display:none}
-  .fixed-section.fixed-collapsible>.loan-cards,
-  .fixed-section.fixed-collapsible>.fixed-detail-table{margin:0 10px 14px}
+  .fixed-section.fixed-collapsible>.loan-cards{margin:0 14px 14px}
+  /* Keep the original table width, but move the whole detail grid 6px left. */
+  .fixed-section.fixed-collapsible>.fixed-detail-table{margin:0 20px 14px 8px}
   .fixed-debt-total,.fixed-section.fixed-collapsible>.section-head>b:not(.fixed-debt-total){font-size:12px}
   .fixed-collapse-chevron{flex-basis:22px;width:22px;height:22px}
   .fixed-collapse-chevron::after{width:7px;height:7px;border-right-width:2px;border-bottom-width:2px}
 
-  /* Fixed-cost detail rows: prioritize both money columns so 7-digit comma values fit on iPhone. */
-  .fixed-detail-table{overflow-x:hidden!important;width:auto!important;max-width:none!important;min-width:0!important}
-  .fixed-detail-table>div{min-width:0!important;width:100%!important;grid-template-columns:minmax(0,.78fr) minmax(0,.46fr) minmax(94px,.9fr) minmax(98px,.94fr)!important;gap:2px!important;padding:8px 0!important}
-  .fixed-detail-table>div:first-child{padding:8px 1px!important}
+  /* Fixed-cost detail rows: restore original field widths; only position is shifted left. */
+  .fixed-detail-table{overflow-x:hidden!important;width:calc(100% - 28px)!important;max-width:calc(100% - 28px)!important;min-width:0!important}
+  .fixed-detail-table>div{min-width:0!important;width:100%!important;grid-template-columns:minmax(0,1.02fr) minmax(0,.66fr) minmax(76px,.84fr) minmax(76px,.84fr)!important;gap:4px!important;padding:8px 0!important}
+  .fixed-detail-table>div:first-child{padding:8px 3px!important}
   .fixed-detail-table span{min-width:0!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap!important;word-break:normal!important}
   .fixed-detail-table>div:first-child span:nth-child(3),
-  .fixed-detail-table>div:first-child span:nth-child(4){text-align:right!important;padding-right:2px}
-  .fixed-detail-table input{min-width:0!important;width:100%!important;max-width:100%!important;padding:7px 3px!important;text-align:right!important;letter-spacing:-.035em!important;font-variant-numeric:tabular-nums!important}
+  .fixed-detail-table>div:first-child span:nth-child(4){text-align:right!important;padding-right:3px}
+  .fixed-detail-table input{min-width:0!important;width:100%!important;max-width:100%!important;padding:7px 3px!important;text-align:right!important;letter-spacing:-.045em!important;font-variant-numeric:tabular-nums!important}
 
   /* Loan editor: rate and effective date stay on one line, apply button remains below. */
   .loan-values,.rate-change{min-width:0!important;width:100%!important;max-width:100%!important}
