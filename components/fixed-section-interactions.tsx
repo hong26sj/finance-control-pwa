@@ -119,24 +119,36 @@ export function FixedSectionInteractions() {
       toggleHeader(header)
     }
 
-    // Capture phase runs before React's delegated onChange handler. React therefore
-    // receives plain digits even though the user sees comma-formatted text.
-    const onInputCapture = (event: Event) => {
+    // While focused, keep the value as plain digits and never rewrite the caret position.
+    // Formatting is applied only after editing finishes, which prevents iOS cursor jumping.
+    const onFocusIn = (event: FocusEvent) => {
       const input = event.target instanceof HTMLInputElement ? event.target : null
       if (!isMoneyInput(input) || !input) return
       prepareMoneyInput(input)
       const digits = rawDigits(input.value)
       if (input.value !== digits) input.value = digits
+      window.setTimeout(() => {
+        try { input.setSelectionRange(input.value.length, input.value.length) } catch { /* best effort */ }
+      }, 0)
+    }
+
+    const onInputCapture = (event: Event) => {
+      const input = event.target instanceof HTMLInputElement ? event.target : null
+      if (!isMoneyInput(input) || !input) return
+      prepareMoneyInput(input)
+      const start = input.selectionStart ?? input.value.length
+      const before = input.value.slice(0, start)
+      const digitsBefore = rawDigits(before).length
+      const digits = rawDigits(input.value)
+      if (input.value !== digits) {
+        input.value = digits
+        try { input.setSelectionRange(digitsBefore, digitsBefore) } catch { /* best effort */ }
+      }
     }
 
     const onInput = (event: Event) => {
       const input = event.target instanceof HTMLInputElement ? event.target : null
-      if (isMoneyInput(input) && input) {
-        window.setTimeout(() => {
-          formatMoneyInput(input)
-          try { input.setSelectionRange(input.value.length, input.value.length) } catch { /* best effort */ }
-        }, 0)
-      }
+      if (isMoneyInput(input) && input) return
       scheduleSync()
     }
 
@@ -147,17 +159,17 @@ export function FixedSectionInteractions() {
 
     document.addEventListener('click', onClick)
     document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('focusin', onFocusIn)
     document.addEventListener('input', onInputCapture, true)
     document.addEventListener('input', onInput)
     document.addEventListener('focusout', onFocusOut)
-    const moneySyncTimer = window.setInterval(syncMoneyInputs, 250)
     scheduleSync()
 
     return () => {
       if (timer !== undefined) window.clearTimeout(timer)
-      window.clearInterval(moneySyncTimer)
       document.removeEventListener('click', onClick)
       document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('focusin', onFocusIn)
       document.removeEventListener('input', onInputCapture, true)
       document.removeEventListener('input', onInput)
       document.removeEventListener('focusout', onFocusOut)
