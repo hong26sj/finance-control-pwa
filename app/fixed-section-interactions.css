@@ -26,18 +26,18 @@
   .fixed-section.fixed-collapsible>.section-head{padding:13px 14px;min-height:58px}
   .fixed-section.fixed-collapsible>.section-head>div:first-child p{display:none}
   .fixed-section.fixed-collapsible>.loan-cards{margin:0 14px 14px}
-  /* Keep the whole grid inside the card and deliberately leave right-side breathing room. */
+  /* Add balanced inner padding: move labels right and keep extra breathing room after actual amount. */
   .fixed-section.fixed-collapsible>.fixed-detail-table{
-    margin:0 0 14px 0!important;
-    width:calc(100% - 18px)!important;
-    max-width:calc(100% - 18px)!important;
+    margin:0 0 14px 10px!important;
+    width:calc(100% - 32px)!important;
+    max-width:calc(100% - 32px)!important;
     box-sizing:border-box!important;
   }
   .fixed-debt-total,.fixed-section.fixed-collapsible>.section-head>b:not(.fixed-debt-total){font-size:12px}
   .fixed-collapse-chevron{flex-basis:22px;width:22px;height:22px}
   .fixed-collapse-chevron::after{width:7px;height:7px;border-right-width:2px;border-bottom-width:2px}
 
-  /* Amount boxes stay compact (100k-range size); available space is taken from the first two columns instead. */
+  /* Amount boxes stay compact; the first two columns absorb the horizontal adjustment. */
   .fixed-detail-table{overflow:visible!important;min-width:0!important}
   .fixed-detail-table>div{
     box-sizing:border-box!important;
