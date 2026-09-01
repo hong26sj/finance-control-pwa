@@ -27,23 +27,11 @@ function doPost(e) {
     if (body.action === 'snapshot.save') return json_({ ok: true, snapshot: saveSnapshot_(body.snapshot || defaultSnapshot_()) });
     if (body.action === 'snapshot.get') {
       ensureSnapshotMigrations_();
+      // Initial app hydration only needs the main snapshot + merchant vault.
+      // Time/source/memo/cashAdvance remain in the protected detail store and are
+      // fetched lazily when a transaction is opened for editing. This removes one
+      // full Drive file read from every app launch.
       var snapshot = readSnapshotForClient_();
-      var ids = snapshot.transactions.map(function (item) { return item.id; }).filter(Boolean);
-      if (ids.length) {
-        var details = getServerTransactionDetails_(ids);
-        var detailById = {};
-        details.forEach(function (item) { detailById[String(item.id)] = item; });
-        snapshot.transactions = snapshot.transactions.map(function (item) {
-          var detail = detailById[String(item.id)] || {};
-          var copy = {};
-          Object.keys(item).forEach(function (key) { copy[key] = item[key]; });
-          copy.time = String(detail.time || '');
-          copy.source = String(detail.source || 'Drive');
-          copy.memo = String(detail.memo || '');
-          copy.cashAdvance = detail.cashAdvance === true;
-          return copy;
-        });
-      }
       return json_({ ok: true, snapshot: snapshot });
     }
     if (body.action === 'transaction.patchOne') return json_({ ok: true, result: patchServerTransaction_(body.item || {}, { writeVault: body.writeVault === true, writeDetails: body.writeDetails === true }) });
