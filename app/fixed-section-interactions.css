@@ -26,44 +26,42 @@
   .fixed-section.fixed-collapsible>.section-head{padding:13px 14px;min-height:58px}
   .fixed-section.fixed-collapsible>.section-head>div:first-child p{display:none}
   .fixed-section.fixed-collapsible>.loan-cards{margin:0 14px 14px}
-  /* Add balanced inner padding: move labels right and keep extra breathing room after actual amount. */
+  /* Equal side insets keep the title band exactly aligned with the detail rows. */
   .fixed-section.fixed-collapsible>.fixed-detail-table{
-    margin:0 0 14px 10px!important;
-    width:calc(100% - 32px)!important;
-    max-width:calc(100% - 32px)!important;
+    margin:0 12px 14px!important;
+    width:auto!important;
+    max-width:none!important;
     box-sizing:border-box!important;
   }
   .fixed-debt-total,.fixed-section.fixed-collapsible>.section-head>b:not(.fixed-debt-total){font-size:12px}
   .fixed-collapse-chevron{flex-basis:22px;width:22px;height:22px}
   .fixed-collapse-chevron::after{width:7px;height:7px;border-right-width:2px;border-bottom-width:2px}
 
-  /* Amount boxes stay compact; the first two columns absorb the horizontal adjustment. */
-  .fixed-detail-table{overflow:visible!important;min-width:0!important}
+  /* Compact money fields with a wider planned/actual gap and a safe right inset. */
+  .fixed-detail-table{overflow:hidden!important;min-width:0!important}
   .fixed-detail-table>div{
     box-sizing:border-box!important;
     min-width:0!important;
     width:100%!important;
     max-width:100%!important;
-    grid-template-columns:minmax(0,1fr) 68px 72px 72px!important;
-    column-gap:4px!important;
+    grid-template-columns:minmax(0,1fr) 66px 70px 70px!important;
+    column-gap:8px!important;
     padding:8px 0!important;
   }
   .fixed-detail-table>div:first-child{padding:8px 0!important}
   .fixed-detail-table span{min-width:0!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap!important;word-break:normal!important}
-  .fixed-detail-table>div:first-child span:nth-child(3),
-  .fixed-detail-table>div:first-child span:nth-child(4){
+  .fixed-detail-table>div:first-child span{
     display:grid!important;
     place-items:center!important;
-    width:72px!important;
     padding:0!important;
     text-align:center!important;
   }
   .fixed-detail-table input{
     box-sizing:border-box!important;
     min-width:0!important;
-    width:72px!important;
-    max-width:72px!important;
-    padding:7px 3px!important;
+    width:70px!important;
+    max-width:70px!important;
+    padding:7px 4px!important;
     text-align:right!important;
     letter-spacing:-.045em!important;
     font-variant-numeric:tabular-nums!important;
