@@ -35,7 +35,12 @@ export function FixedSectionInteractions() {
 
     const syncMoneyInputs = () => {
       document.querySelectorAll<HTMLInputElement>('.loan-values input, .fixed-detail-table input, .modal .form-grid input').forEach((input) => {
-        if (isMoneyInput(input)) formatMoneyInput(input)
+        if (!isMoneyInput(input)) return
+        if (document.activeElement === input) {
+          prepareMoneyInput(input)
+          return
+        }
+        formatMoneyInput(input)
       })
     }
 
@@ -137,7 +142,7 @@ export function FixedSectionInteractions() {
 
     const onFocusOut = (event: FocusEvent) => {
       const input = event.target instanceof HTMLInputElement ? event.target : null
-      if (isMoneyInput(input) && input) formatMoneyInput(input)
+      if (isMoneyInput(input) && input) window.setTimeout(() => formatMoneyInput(input), 0)
     }
 
     document.addEventListener('click', onClick)
@@ -145,10 +150,12 @@ export function FixedSectionInteractions() {
     document.addEventListener('input', onInputCapture, true)
     document.addEventListener('input', onInput)
     document.addEventListener('focusout', onFocusOut)
+    const moneySyncTimer = window.setInterval(syncMoneyInputs, 250)
     scheduleSync()
 
     return () => {
       if (timer !== undefined) window.clearTimeout(timer)
+      window.clearInterval(moneySyncTimer)
       document.removeEventListener('click', onClick)
       document.removeEventListener('keydown', onKeyDown)
       document.removeEventListener('input', onInputCapture, true)
