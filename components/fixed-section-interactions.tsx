@@ -6,47 +6,8 @@ export function FixedSectionInteractions() {
   useEffect(() => {
     let timer: number | undefined
 
-    const isMoneyInput = (input: HTMLInputElement | null) => {
-      if (!input) return false
-      if (input.dataset.flowMoneyInput === '1') return true
-      return input.matches('.loan-values input[type="number"], .fixed-detail-table input[type="number"], .modal .form-grid input[type="number"]')
-    }
-
-    const rawDigits = (value: string) => value.replace(/[^0-9]/g, '')
-    const formatDigits = (value: string) => {
-      const digits = rawDigits(value)
-      if (!digits) return ''
-      return Number(digits).toLocaleString('ko-KR')
-    }
-
-    const prepareMoneyInput = (input: HTMLInputElement) => {
-      input.dataset.flowMoneyInput = '1'
-      if (input.type !== 'text') input.type = 'text'
-      input.inputMode = 'numeric'
-      input.pattern = '[0-9,]*'
-    }
-
-    const formatMoneyInput = (input: HTMLInputElement) => {
-      if (!isMoneyInput(input)) return
-      prepareMoneyInput(input)
-      const formatted = formatDigits(input.value)
-      if (input.value !== formatted) input.value = formatted
-    }
-
-    const syncMoneyInputs = () => {
-      document.querySelectorAll<HTMLInputElement>('.loan-values input, .fixed-detail-table input, .modal .form-grid input').forEach((input) => {
-        if (!isMoneyInput(input)) return
-        if (document.activeElement === input) {
-          prepareMoneyInput(input)
-          return
-        }
-        formatMoneyInput(input)
-      })
-    }
-
     const syncSections = () => {
       const sections = Array.from(document.querySelectorAll<HTMLElement>('.fixed-section'))
-      syncMoneyInputs()
       if (!sections.length) return
 
       const loanTotalText = document.querySelector<HTMLElement>('.metrics article:nth-child(2) b')?.textContent?.trim() || '0원'
@@ -119,60 +80,14 @@ export function FixedSectionInteractions() {
       toggleHeader(header)
     }
 
-    // While focused, keep the value as plain digits and never rewrite the caret position.
-    // Formatting is applied only after editing finishes, which prevents iOS cursor jumping.
-    const onFocusIn = (event: FocusEvent) => {
-      const input = event.target instanceof HTMLInputElement ? event.target : null
-      if (!isMoneyInput(input) || !input) return
-      prepareMoneyInput(input)
-      const digits = rawDigits(input.value)
-      if (input.value !== digits) input.value = digits
-      window.setTimeout(() => {
-        try { input.setSelectionRange(input.value.length, input.value.length) } catch { /* best effort */ }
-      }, 0)
-    }
-
-    const onInputCapture = (event: Event) => {
-      const input = event.target instanceof HTMLInputElement ? event.target : null
-      if (!isMoneyInput(input) || !input) return
-      prepareMoneyInput(input)
-      const start = input.selectionStart ?? input.value.length
-      const before = input.value.slice(0, start)
-      const digitsBefore = rawDigits(before).length
-      const digits = rawDigits(input.value)
-      if (input.value !== digits) {
-        input.value = digits
-        try { input.setSelectionRange(digitsBefore, digitsBefore) } catch { /* best effort */ }
-      }
-    }
-
-    const onInput = (event: Event) => {
-      const input = event.target instanceof HTMLInputElement ? event.target : null
-      if (isMoneyInput(input) && input) return
-      scheduleSync()
-    }
-
-    const onFocusOut = (event: FocusEvent) => {
-      const input = event.target instanceof HTMLInputElement ? event.target : null
-      if (isMoneyInput(input) && input) window.setTimeout(() => formatMoneyInput(input), 0)
-    }
-
     document.addEventListener('click', onClick)
     document.addEventListener('keydown', onKeyDown)
-    document.addEventListener('focusin', onFocusIn)
-    document.addEventListener('input', onInputCapture, true)
-    document.addEventListener('input', onInput)
-    document.addEventListener('focusout', onFocusOut)
     scheduleSync()
 
     return () => {
       if (timer !== undefined) window.clearTimeout(timer)
       document.removeEventListener('click', onClick)
       document.removeEventListener('keydown', onKeyDown)
-      document.removeEventListener('focusin', onFocusIn)
-      document.removeEventListener('input', onInputCapture, true)
-      document.removeEventListener('input', onInput)
-      document.removeEventListener('focusout', onFocusOut)
     }
   }, [])
 
