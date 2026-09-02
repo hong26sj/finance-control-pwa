@@ -76,8 +76,6 @@ export function TransactionCategoryEditor() {
       setSaveProgress(0)
       setSaveStage('')
 
-      // Initial app hydration intentionally skips the protected detail file for speed.
-      // Fetch only this transaction's time/source/memo when the editor is actually opened.
       const token = localStorage.getItem('flow-drive-token') || ''
       const endpoint = localStorage.getItem('flow-drive-endpoint') || DEFAULT_APPS_SCRIPT_URL
       if (token && resolved.id) {
@@ -92,6 +90,41 @@ export function TransactionCategoryEditor() {
     document.addEventListener('click', onClick)
     return () => document.removeEventListener('click', onClick)
   }, [])
+
+  useEffect(() => {
+    if (!editing) return
+    const body = document.body
+    const html = document.documentElement
+    const scrollY = window.scrollY
+    const previous = {
+      bodyPosition: body.style.position,
+      bodyTop: body.style.top,
+      bodyLeft: body.style.left,
+      bodyRight: body.style.right,
+      bodyWidth: body.style.width,
+      bodyOverflow: body.style.overflow,
+      htmlOverflow: html.style.overflow,
+    }
+
+    body.style.position = 'fixed'
+    body.style.top = `-${scrollY}px`
+    body.style.left = '0'
+    body.style.right = '0'
+    body.style.width = '100%'
+    body.style.overflow = 'hidden'
+    html.style.overflow = 'hidden'
+
+    return () => {
+      body.style.position = previous.bodyPosition
+      body.style.top = previous.bodyTop
+      body.style.left = previous.bodyLeft
+      body.style.right = previous.bodyRight
+      body.style.width = previous.bodyWidth
+      body.style.overflow = previous.bodyOverflow
+      html.style.overflow = previous.htmlOverflow
+      window.scrollTo(0, scrollY)
+    }
+  }, [editing])
 
   const close = () => {
     if (saving || deleting) return
@@ -156,6 +189,11 @@ export function TransactionCategoryEditor() {
         }).catch(() => undefined)
       }
 
+      // FinanceApp keeps its own React transaction state. Once the Drive write has
+      // completed and the server lock has been released, trigger its existing
+      // pageshow refresh path so dashboard/inbox/calendar converge on the same row.
+      window.setTimeout(() => window.dispatchEvent(new Event('pageshow')), 120)
+
       await wait(180)
       setEditing(null)
       setDraft(null)
@@ -187,6 +225,7 @@ export function TransactionCategoryEditor() {
       window.dispatchEvent(new Event('flow-explicit-transaction-write'))
       localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(readRows().filter((item) => item.id !== row.id)))
       window.dispatchEvent(new CustomEvent('flow-transactions-changed', { detail: { id: row.id, deleted: true } }))
+      window.setTimeout(() => window.dispatchEvent(new Event('pageshow')), 120)
       setEditing(null)
       setDraft(null)
     } catch (e) {
