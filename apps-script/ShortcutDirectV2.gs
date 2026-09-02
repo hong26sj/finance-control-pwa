@@ -32,7 +32,7 @@ function importShortcutTransactionDirectV2_(body) {
     var learned = shortcutLearnedClassification_(vault, merchantHash);
 
     if (shortcutExistsInServer_(snapshot, details, date, time, card, amount, merchantHash)) {
-      return { ok: true, status: 'duplicate', merchant: merchant, amount: amount, category: learned.category };
+      return { ok: true, status: 'duplicate', merchant: merchant, amount: amount, category: learned.category, date: date, time: time, card: card };
     }
 
     var raw = {
@@ -56,7 +56,18 @@ function importShortcutTransactionDirectV2_(body) {
     var clean = sanitizeTransaction_(raw);
     snapshot.transactions.push(clean);
     updateServerVaultItem_(vault, raw, clean);
-    updateServerDetailItem_(details, raw, clean);
+
+    // Shortcut imports must always persist the parsed approval time. The app's
+    // fast initial snapshot intentionally omits protected detail data and reads
+    // it lazily when the transaction editor opens, so write the detail entry
+    // explicitly here instead of relying on any client-side follow-up save.
+    details.transactions[clean.id] = {
+      time: time,
+      source: 'iOS 카드알림 OCR',
+      memo: '',
+      cashAdvance: false
+    };
+
     writeServerSnapshot_(snapshot);
     writeMerchantVault_(vault);
     writeTransactionDetails_(details);
@@ -67,7 +78,11 @@ function importShortcutTransactionDirectV2_(body) {
       merchant: merchant,
       amount: amount,
       category: learned.category,
-      id: clean.id
+      id: clean.id,
+      date: date,
+      time: time,
+      card: card,
+      detailStored: true
     };
   } finally {
     lock.releaseLock();
