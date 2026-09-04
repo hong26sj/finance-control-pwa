@@ -1,4 +1,4 @@
-import { FinanceSettings, FixedPlan, Loan, MerchantRule, Transaction } from './finance'
+import { EMPTY_SETTINGS, FinanceSettings, FixedPlan, Loan, MerchantRule, Transaction } from './finance'
 
 export const DEFAULT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwmsy16Y7h9Js_4kY7qCscrQYuvWCm_DUAwOIO3-k9is1xWnOC72SHkWKPK8jOFc7bPDg/exec'
 
@@ -29,6 +29,35 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 function isLockConflict(message: string) {
   const value = String(message || '').toLowerCase()
   return value.includes('잠금') || value.includes('lock') || value.includes('시간초과') || value.includes('timeout')
+}
+
+function normalizeSettings(value: unknown): FinanceSettings {
+  const raw = value && typeof value === 'object' ? value as Partial<FinanceSettings> : {}
+  const budgets = raw.categoryBudgets && typeof raw.categoryBudgets === 'object' ? raw.categoryBudgets : {}
+  return {
+    ...EMPTY_SETTINGS,
+    ...raw,
+    weeklyBase: Number(raw.weeklyBase || 0),
+    livingCap: Number(raw.livingCap || 0),
+    monthlyPaceTarget: Number(raw.monthlyPaceTarget || 0),
+    salary: Number(raw.salary || 0),
+    cardTarget: Number(raw.cardTarget || 0),
+    categoryBudgets: { ...EMPTY_SETTINGS.categoryBudgets, ...budgets },
+  }
+}
+
+function normalizeSnapshot(value: unknown): FinanceSnapshot {
+  const raw = value && typeof value === 'object' ? value as Partial<FinanceSnapshot> : {}
+  return {
+    version: Number(raw.version || 0),
+    privacyVersion: Number(raw.privacyVersion || 4),
+    updatedAt: String(raw.updatedAt || ''),
+    transactions: Array.isArray(raw.transactions) ? raw.transactions : [],
+    loans: Array.isArray(raw.loans) ? raw.loans : [],
+    fixedPlans: Array.isArray(raw.fixedPlans) ? raw.fixedPlans : [],
+    settings: normalizeSettings(raw.settings),
+    cashFlow: Number(raw.cashFlow || 0),
+  }
 }
 
 async function requestNow(endpoint: string, authToken: string, body: Record<string, unknown>) {
@@ -77,7 +106,8 @@ async function fetchSnapshot(endpoint: string, authToken: string): Promise<Finan
   const key = snapshotKey(endpoint, authToken)
   const now = Date.now()
   if (recentSnapshot && recentSnapshot.key === key && now - recentSnapshot.at < SNAPSHOT_CACHE_MS) return recentSnapshot.value
-  const snapshot = (await requestNow(endpoint, authToken, { action: 'snapshot.get' })).snapshot as FinanceSnapshot
+  const raw = (await requestNow(endpoint, authToken, { action: 'snapshot.get' })).snapshot
+  const snapshot = normalizeSnapshot(raw)
   recentSnapshot = { key, at: now, value: snapshot }
   return snapshot
 }
@@ -105,13 +135,22 @@ export const privateTransactionsForDrive = (items: Transaction[]): DriveTransact
   cashAdvance: item.cashAdvance,
 }))
 
-export const restoreDriveTransactions = (items: DriveTransaction[], _legacyLocalItems: Transaction[] = []): Transaction[] => items.map((item) => ({
+export const restoreDriveTransactions = (items: DriveTransaction[], _legacyLocalItems: Transaction[] = []): Transaction[] => (Array.isArray(items) ? items : []).map((item) => ({
   ...item,
-  time: item.time || '',
-  merchant: item.merchant || '',
-  source: item.source || 'Drive',
-  memo: item.memo || '',
-  cashAdvance: item.cashAdvance,
+  id: String(item?.id || ''),
+  date: String(item?.date || ''),
+  time: String(item?.time || ''),
+  card: String(item?.card || '기타'),
+  merchant: String(item?.merchant || ''),
+  amount: Number(item?.amount || 0),
+  category: String(item?.category || '미분류'),
+  living: item?.living !== false,
+  fixed: item?.fixed === true,
+  performanceIncluded: item?.performanceIncluded !== false,
+  cashFlow: item?.cashFlow === true,
+  source: String(item?.source || 'Drive'),
+  memo: String(item?.memo || ''),
+  cashAdvance: item?.cashAdvance === true,
 }))
 
 export async function loginDrive(endpoint: string, password: string): Promise<{ authToken: string; expiresAt: string }> {
