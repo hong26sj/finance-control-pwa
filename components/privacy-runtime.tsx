@@ -8,7 +8,12 @@ const TRANSACTIONS_KEY = 'flow-preview-transactions'
 const LOANS_KEY = 'flow-preview-loans'
 const FIXED_KEY = 'flow-preview-fixed'
 const SETTINGS_KEY = 'flow-preview-settings'
+const PENDING_KEY = 'flow-sync-pending-v2'
 const FINANCE_KEYS = new Set([TRANSACTIONS_KEY, LOANS_KEY, FIXED_KEY, SETTINGS_KEY])
+
+type PendingSync = { upsertIds: string[]; deletedIds: string[]; config: boolean }
+
+const EMPTY_PENDING: PendingSync = { upsertIds: [], deletedIds: [], config: false }
 
 function parseRows(value: string | null): Transaction[] {
   try {
@@ -41,6 +46,10 @@ function sameRow(a: Transaction, b: Transaction) {
   return JSON.stringify(a) === JSON.stringify(b)
 }
 
+function unique(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)))
+}
+
 function reportProgress(progress: number, stage: string, state: 'saving' | 'done' | 'error' = 'saving') {
   window.dispatchEvent(new CustomEvent('flow-drive-save-progress', { detail: { progress, stage, state } }))
 }
@@ -50,144 +59,204 @@ export function PrivacyRuntime() {
     const originalGetItem = Storage.prototype.getItem
     const originalSetItem = Storage.prototype.setItem
     const originalRemoveItem = Storage.prototype.removeItem
-    const memory = new Map<string, string>()
-    let serverReady = false
-    let authSeen = false
-    let hydrationTimer: number | undefined
     let configTimer: number | undefined
+    let flushTimer: number | undefined
+    let flushing = false
     let suspendUntil = 0
     let explicitTransactionWriteUntil = 0
 
-    const realLocalGet = (key: string) => originalGetItem.call(window.localStorage, key)
-    const getAuth = () => ({
-      token: realLocalGet('flow-drive-token') || '',
-      endpoint: realLocalGet('flow-drive-endpoint') || DEFAULT_APPS_SCRIPT_URL,
-    })
-
-    const purgeLegacyFinanceData = () => {
-      FINANCE_KEYS.forEach((key) => originalRemoveItem.call(window.localStorage, key))
-      originalRemoveItem.call(window.localStorage, 'flow-shortcut-staged-transactions')
-      originalRemoveItem.call(window.localStorage, 'flow-shortcut-sync-notice')
-    }
-
+    const realGet = (key: string) => originalGetItem.call(window.localStorage, key)
+    const realSet = (key: string, value: string) => originalSetItem.call(window.localStorage, key, value)
+    const realRemove = (key: string) => originalRemoveItem.call(window.localStorage, key)
     const suspended = () => Date.now() < suspendUntil
     const explicitTransactionWrite = () => Date.now() < explicitTransactionWriteUntil
+    const getAuth = () => ({
+      token: realGet('flow-drive-token') || '',
+      endpoint: realGet('flow-drive-endpoint') || DEFAULT_APPS_SCRIPT_URL,
+    })
 
-    const persistTransactionDiff = (previousValue: string | null, nextValue: string) => {
-      if (!serverReady || suspended() || explicitTransactionWrite()) return
+    const readPending = (): PendingSync => {
+      try {
+        const raw = JSON.parse(realGet(PENDING_KEY) || 'null') as Partial<PendingSync> | null
+        if (!raw) return { ...EMPTY_PENDING }
+        return {
+          upsertIds: unique(Array.isArray(raw.upsertIds) ? raw.upsertIds.map(String) : []),
+          deletedIds: unique(Array.isArray(raw.deletedIds) ? raw.deletedIds.map(String) : []),
+          config: raw.config === true,
+        }
+      } catch {
+        return { ...EMPTY_PENDING }
+      }
+    }
+
+    const writePending = (pending: PendingSync) => {
+      const normalized = {
+        upsertIds: unique(pending.upsertIds),
+        deletedIds: unique(pending.deletedIds),
+        config: pending.config === true,
+      }
+      if (!normalized.upsertIds.length && !normalized.deletedIds.length && !normalized.config) {
+        realRemove(PENDING_KEY)
+      } else {
+        realSet(PENDING_KEY, JSON.stringify(normalized))
+      }
+    }
+
+    const mergePending = (incoming: Partial<PendingSync>) => {
+      const current = readPending()
+      const deleted = unique([...current.deletedIds, ...(incoming.deletedIds || [])])
+      const deletedSet = new Set(deleted)
+      const upserts = unique([...current.upsertIds, ...(incoming.upsertIds || [])]).filter((id) => !deletedSet.has(id))
+      writePending({ upsertIds: upserts, deletedIds: deleted, config: current.config || incoming.config === true })
+    }
+
+    const scheduleFlush = (delay = 180) => {
+      if (flushTimer !== undefined) window.clearTimeout(flushTimer)
+      flushTimer = window.setTimeout(() => { void flushPending() }, delay)
+    }
+
+    const flushPending = async () => {
+      if (flushing || suspended() || explicitTransactionWrite() || !navigator.onLine) return
       const { token, endpoint } = getAuth()
       if (!token) return
+      const pending = readPending()
+      if (!pending.upsertIds.length && !pending.deletedIds.length && !pending.config) return
+
+      flushing = true
+      writePending({ ...EMPTY_PENDING })
+      reportProgress(38, 'Drive 동기화 중')
+
+      try {
+        const rows = parseRows(realGet(TRANSACTIONS_KEY))
+        const wanted = new Set(pending.upsertIds)
+        const upserts = rows.filter((row) => wanted.has(row.id))
+        if (upserts.length) await upsertDriveTransactions(endpoint, token, upserts)
+        if (pending.deletedIds.length) await deleteDriveTransactions(endpoint, token, pending.deletedIds)
+
+        if (pending.config) {
+          const settings = parseSettings(realGet(SETTINGS_KEY))
+          if (settings) {
+            await saveDriveConfig(endpoint, token, {
+              loans: parseArray<Loan>(realGet(LOANS_KEY)),
+              fixedPlans: parseArray<FixedPlan>(realGet(FIXED_KEY)),
+              settings,
+              cashFlow: 0,
+            })
+          }
+        }
+
+        reportProgress(100, 'Drive 동기화 완료', 'done')
+        window.dispatchEvent(new CustomEvent('flow-drive-sync-complete', { detail: pending }))
+        if (pending.upsertIds.length || pending.deletedIds.length) {
+          window.setTimeout(() => window.dispatchEvent(new Event('pageshow')), 180)
+        }
+      } catch (error) {
+        mergePending(pending)
+        reportProgress(0, '동기화 대기 · 자동 재시도', 'error')
+        scheduleFlush(2500)
+      } finally {
+        flushing = false
+        if (readPending().upsertIds.length || readPending().deletedIds.length || readPending().config) scheduleFlush(500)
+      }
+    }
+
+    const persistTransactionDiff = (previousValue: string | null, nextValue: string) => {
+      if (suspended() || explicitTransactionWrite()) return
       const previous = parseRows(previousValue)
       const next = parseRows(nextValue)
       const previousById = new Map(previous.map((row) => [row.id, row]))
       const nextById = new Map(next.map((row) => [row.id, row]))
-      const upserts = next.filter((row) => {
+      const upsertIds = next.filter((row) => {
         const before = previousById.get(row.id)
         return !before || !sameRow(before, row)
-      })
+      }).map((row) => row.id)
       const deletedIds = previous.filter((row) => !nextById.has(row.id)).map((row) => row.id)
-      if (!upserts.length && !deletedIds.length) return
-
-      reportProgress(12, '변경사항 준비 중')
-      window.setTimeout(() => reportProgress(36, 'Drive 전송 중'), 80)
-      const tasks: Promise<unknown>[] = []
-      if (upserts.length) tasks.push(upsertDriveTransactions(endpoint, token, upserts))
-      if (deletedIds.length) tasks.push(deleteDriveTransactions(endpoint, token, deletedIds))
-      window.setTimeout(() => reportProgress(72, '거래내역 저장 중'), 220)
-      Promise.all(tasks).then(() => {
-        reportProgress(100, '저장 완료', 'done')
-      }).catch((error) => {
-        reportProgress(0, error instanceof Error ? error.message : '저장 실패', 'error')
-      })
-    }
-
-    const persistConfig = () => {
-      if (!serverReady || suspended()) return
-      const { token, endpoint } = getAuth()
-      if (!token) return
-      const loans = parseArray<Loan>(memory.get(LOANS_KEY) || null)
-      const fixedPlans = parseArray<FixedPlan>(memory.get(FIXED_KEY) || null)
-      const settings = parseSettings(memory.get(SETTINGS_KEY) || null)
-      if (!settings) return
-      void saveDriveConfig(endpoint, token, { loans, fixedPlans, settings, cashFlow: 0 }).catch(() => undefined)
+      if (!upsertIds.length && !deletedIds.length) return
+      mergePending({ upsertIds, deletedIds })
+      reportProgress(12, '기기에 저장됨')
+      scheduleFlush()
     }
 
     const scheduleConfig = () => {
-      if (!serverReady || suspended()) return
+      if (suspended()) return
       if (configTimer !== undefined) window.clearTimeout(configTimer)
-      configTimer = window.setTimeout(persistConfig, 650)
+      configTimer = window.setTimeout(() => {
+        mergePending({ config: true })
+        reportProgress(12, '기기에 저장됨')
+        scheduleFlush(120)
+      }, 700)
     }
 
-    const armServerReadyAfterHydration = () => {
-      if (serverReady || !authSeen || hydrationTimer !== undefined) return
-      hydrationTimer = window.setTimeout(() => {
-        serverReady = true
-        hydrationTimer = undefined
-        purgeLegacyFinanceData()
-      }, 900)
-    }
-
+    // Local-first: finance values are now persisted normally on-device. We only
+    // observe writes to build a durable background Drive sync queue.
     Storage.prototype.getItem = function (key: string) {
-      if (this === window.localStorage && FINANCE_KEYS.has(key)) return memory.get(key) ?? null
       return originalGetItem.call(this, key)
     }
 
     Storage.prototype.setItem = function (key: string, value: string) {
       if (this === window.localStorage && FINANCE_KEYS.has(key)) {
-        const previous = memory.get(key) ?? null
-        memory.set(key, value)
-        if (!serverReady) {
-          armServerReadyAfterHydration()
-          return
-        }
+        const previous = originalGetItem.call(this, key)
+        originalSetItem.call(this, key, value)
+        if (previous === value) return
         if (key === TRANSACTIONS_KEY) persistTransactionDiff(previous, value)
         else scheduleConfig()
         return
       }
-      return originalSetItem.call(this, key, value)
+      originalSetItem.call(this, key, value)
     }
 
     Storage.prototype.removeItem = function (key: string) {
       if (this === window.localStorage && FINANCE_KEYS.has(key)) {
-        const previous = memory.get(key) ?? null
-        memory.delete(key)
-        if (key === TRANSACTIONS_KEY && previous && serverReady && !suspended() && !explicitTransactionWrite()) {
-          const { token, endpoint } = getAuth()
-          const ids = parseRows(previous).map((row) => row.id)
-          if (token && ids.length) void deleteDriveTransactions(endpoint, token, ids).catch(() => undefined)
+        const previous = originalGetItem.call(this, key)
+        originalRemoveItem.call(this, key)
+        if (key === TRANSACTIONS_KEY && previous && !suspended() && !explicitTransactionWrite()) {
+          mergePending({ deletedIds: parseRows(previous).map((row) => row.id) })
+          scheduleFlush()
+        } else if (key !== TRANSACTIONS_KEY) {
+          scheduleConfig()
         }
         return
       }
-      return originalRemoveItem.call(this, key)
+      originalRemoveItem.call(this, key)
     }
 
-    const suspendForRemoteLoad = () => { suspendUntil = Date.now() + 3500 }
-    const onExplicitTransactionWrite = () => { explicitTransactionWriteUntil = Date.now() + 6000 }
+    const suspendForRemoteLoad = () => { suspendUntil = Date.now() + 3000 }
+    const onExplicitTransactionWrite = () => { explicitTransactionWriteUntil = Date.now() + 5000 }
     const onClickCapture = (event: MouseEvent) => {
       const button = (event.target as HTMLElement | null)?.closest('button')
       const text = button?.textContent?.trim() || ''
       if (text === 'Drive에서 불러오기' || text.includes('인증하고 Drive 불러오기')) suspendForRemoteLoad()
     }
-    const onVisible = () => { if (document.visibilityState === 'visible') suspendForRemoteLoad() }
-    const onPageShow = () => suspendForRemoteLoad()
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      suspendForRemoteLoad()
+      window.setTimeout(() => scheduleFlush(0), 3200)
+    }
+    const onPageShow = () => {
+      suspendForRemoteLoad()
+      window.setTimeout(() => scheduleFlush(0), 3200)
+    }
+    const onOnline = () => scheduleFlush(0)
 
     document.addEventListener('click', onClickCapture, true)
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('pageshow', onPageShow)
+    window.addEventListener('online', onOnline)
     window.addEventListener('flow-explicit-transaction-write', onExplicitTransactionWrite)
 
-    const authWatcher = window.setInterval(() => {
-      const state = document.querySelector<HTMLElement>('.sidebar .sync b')?.textContent?.trim() || ''
-      if (state.includes('인증됨')) authSeen = true
-    }, 200)
+    const retryTimer = window.setInterval(() => {
+      if (!suspended() && !explicitTransactionWrite()) scheduleFlush(0)
+    }, 15000)
+    scheduleFlush(1200)
 
     return () => {
-      if (hydrationTimer !== undefined) window.clearTimeout(hydrationTimer)
       if (configTimer !== undefined) window.clearTimeout(configTimer)
-      window.clearInterval(authWatcher)
+      if (flushTimer !== undefined) window.clearTimeout(flushTimer)
+      window.clearInterval(retryTimer)
       document.removeEventListener('click', onClickCapture, true)
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('pageshow', onPageShow)
+      window.removeEventListener('online', onOnline)
       window.removeEventListener('flow-explicit-transaction-write', onExplicitTransactionWrite)
       Storage.prototype.getItem = originalGetItem
       Storage.prototype.setItem = originalSetItem
