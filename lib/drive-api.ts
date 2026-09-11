@@ -16,7 +16,9 @@ export type DriveTransactionDetail = { id: string; time?: string; source?: strin
 
 let mutationTail: Promise<void> = Promise.resolve()
 let recentSnapshot: { key: string; at: number; value: FinanceSnapshot } | null = null
-const SNAPSHOT_CACHE_MS = 5000
+const SNAPSHOT_CACHE_MS = 15000
+const LOCAL_VERSION_KEY = 'flow-drive-version'
+const LOCAL_UPDATED_KEY = 'flow-drive-updated-at'
 
 function enqueueMutation<T>(task: () => Promise<T>): Promise<T> {
   const run = mutationTail.then(task, task)
@@ -102,13 +104,61 @@ function snapshotKey(endpoint: string, authToken: string) {
   return `${endpoint.trim() || DEFAULT_APPS_SCRIPT_URL}|${authToken}`
 }
 
+function readLocalSnapshot(): FinanceSnapshot | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const txRaw = window.localStorage.getItem('flow-preview-transactions')
+    const settingsRaw = window.localStorage.getItem('flow-preview-settings')
+    if (!txRaw && !settingsRaw) return null
+    const transactions = JSON.parse(txRaw || '[]')
+    const loans = JSON.parse(window.localStorage.getItem('flow-preview-loans') || '[]')
+    const fixedPlans = JSON.parse(window.localStorage.getItem('flow-preview-fixed') || '[]')
+    const settings = JSON.parse(settingsRaw || '{}')
+    return normalizeSnapshot({
+      version: Number(window.localStorage.getItem(LOCAL_VERSION_KEY) || 0),
+      privacyVersion: 4,
+      updatedAt: window.localStorage.getItem(LOCAL_UPDATED_KEY) || '',
+      transactions,
+      loans,
+      fixedPlans,
+      settings,
+      cashFlow: 0,
+    })
+  } catch {
+    return null
+  }
+}
+
+function rememberRemoteVersion(version?: number, updatedAt?: string) {
+  if (typeof window === 'undefined') return
+  if (Number(version || 0) > 0) window.localStorage.setItem(LOCAL_VERSION_KEY, String(Number(version)))
+  if (updatedAt) window.localStorage.setItem(LOCAL_UPDATED_KEY, String(updatedAt))
+}
+
 async function fetchSnapshot(endpoint: string, authToken: string): Promise<FinanceSnapshot> {
   const key = snapshotKey(endpoint, authToken)
   const now = Date.now()
   if (recentSnapshot && recentSnapshot.key === key && now - recentSnapshot.at < SNAPSHOT_CACHE_MS) return recentSnapshot.value
+
+  const local = readLocalSnapshot()
+  try {
+    const status = await requestNow(endpoint, authToken, { action: 'sync.status' })
+    const remoteVersion = Number(status.version || 0)
+    const localVersion = Number(local?.version || 0)
+    if (local && remoteVersion > 0 && localVersion >= remoteVersion) {
+      const value = { ...local, version: remoteVersion, updatedAt: String(status.updated_at || local.updatedAt || '') }
+      recentSnapshot = { key, at: now, value }
+      rememberRemoteVersion(remoteVersion, value.updatedAt)
+      return value
+    }
+  } catch {
+    // Older Apps Script deployments may not have sync.status yet. Fall through.
+  }
+
   const raw = (await requestNow(endpoint, authToken, { action: 'snapshot.get' })).snapshot
   const snapshot = normalizeSnapshot(raw)
   recentSnapshot = { key, at: now, value: snapshot }
+  rememberRemoteVersion(snapshot.version, snapshot.updatedAt)
   return snapshot
 }
 
@@ -159,8 +209,8 @@ export async function loginDrive(endpoint: string, password: string): Promise<{ 
 }
 
 export async function checkDriveAuth(endpoint: string, authToken: string) {
-  await fetchSnapshot(endpoint, authToken)
-  return { ok: true }
+  const result = await requestNow(endpoint, authToken, { action: 'auth.check' })
+  return { ok: true, expiresAt: result.expires_at || null }
 }
 
 export async function loadDriveSnapshot(endpoint: string, authToken: string): Promise<FinanceSnapshot> {
@@ -182,30 +232,35 @@ export async function patchDriveTransaction(endpoint: string, authToken: string,
       writeDetails: options.writeDetails === true,
     })
     invalidateSnapshotCache()
-    return result.result as { saved: number; version?: number; updatedAt?: string; writes?: number }
+    const saved = result.result as { saved: number; version?: number; updatedAt?: string; writes?: number }
+    rememberRemoteVersion(saved?.version, saved?.updatedAt)
+    return saved
   })
 }
 
 export async function upsertDriveTransactions(endpoint: string, authToken: string, items: Transaction[]) {
   if (!items.length) return
   await enqueueMutation(async () => {
-    await requestNow(endpoint, authToken, { action: 'transaction.upsertMany', items })
+    const result = await requestNow(endpoint, authToken, { action: 'transaction.upsertMany', items })
     invalidateSnapshotCache()
+    rememberRemoteVersion(result.result?.version, result.result?.updatedAt)
   })
 }
 
 export async function deleteDriveTransactions(endpoint: string, authToken: string, ids: string[]) {
   if (!ids.length) return
   await enqueueMutation(async () => {
-    await requestNow(endpoint, authToken, { action: 'transaction.deleteMany', ids })
+    const result = await requestNow(endpoint, authToken, { action: 'transaction.deleteMany', ids })
     invalidateSnapshotCache()
+    rememberRemoteVersion(result.result?.version, result.result?.updatedAt)
   })
 }
 
 export async function saveDriveConfig(endpoint: string, authToken: string, input: { loans?: Loan[]; fixedPlans?: FixedPlan[]; settings?: FinanceSettings; cashFlow?: number }) {
   await enqueueMutation(async () => {
-    await requestNow(endpoint, authToken, { action: 'config.save', ...input })
+    const result = await requestNow(endpoint, authToken, { action: 'config.save', ...input })
     invalidateSnapshotCache()
+    rememberRemoteVersion(result.result?.version, result.result?.updatedAt)
   })
 }
 
@@ -225,7 +280,6 @@ export async function resolveMerchantRules(endpoint: string, authToken: string, 
 export async function saveMerchantRule(endpoint: string, authToken: string, input: { transactionId: string; rawMerchant?: string; merchantHash?: string; category: string }): Promise<{ merchantHash: string; rule: MerchantRule }> {
   return enqueueMutation(async () => {
     const result = await requestNow(endpoint, authToken, { action: 'merchant.rule.save', ...input })
-    invalidateSnapshotCache()
     return { merchantHash: result.merchantHash, rule: result.rule }
   })
 }
@@ -234,7 +288,6 @@ export async function saveTransactionMerchants(endpoint: string, authToken: stri
   if (!items.length) return
   await enqueueMutation(async () => {
     await requestNow(endpoint, authToken, { action: 'transaction.merchant.saveMany', items })
-    invalidateSnapshotCache()
   })
 }
 
@@ -246,6 +299,5 @@ export async function getTransactionMerchant(endpoint: string, authToken: string
 export async function deleteTransactionMerchant(endpoint: string, authToken: string, transactionId: string) {
   await enqueueMutation(async () => {
     await requestNow(endpoint, authToken, { action: 'transaction.merchant.delete', transactionId })
-    invalidateSnapshotCache()
   })
 }
