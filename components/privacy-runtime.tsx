@@ -54,6 +54,13 @@ function reportProgress(progress: number, stage: string, state: 'saving' | 'done
   window.dispatchEvent(new CustomEvent('flow-drive-save-progress', { detail: { progress, stage, state } }))
 }
 
+function retryDelay(failures: number) {
+  if (failures <= 1) return 3000
+  if (failures === 2) return 7000
+  if (failures === 3) return 15000
+  return 30000
+}
+
 export function PrivacyRuntime() {
   useLayoutEffect(() => {
     const originalGetItem = Storage.prototype.getItem
@@ -62,6 +69,7 @@ export function PrivacyRuntime() {
     let configTimer: number | undefined
     let flushTimer: number | undefined
     let flushing = false
+    let failureCount = 0
     let suspendUntil = 0
     let explicitTransactionWriteUntil = 0
 
@@ -112,7 +120,10 @@ export function PrivacyRuntime() {
 
     const scheduleFlush = (delay = 180) => {
       if (flushTimer !== undefined) window.clearTimeout(flushTimer)
-      flushTimer = window.setTimeout(() => { void flushPending() }, delay)
+      flushTimer = window.setTimeout(() => {
+        flushTimer = undefined
+        void flushPending()
+      }, delay)
     }
 
     const flushPending = async () => {
@@ -125,6 +136,7 @@ export function PrivacyRuntime() {
       flushing = true
       writePending({ ...EMPTY_PENDING })
       reportProgress(38, 'Drive 동기화 중')
+      let failed = false
 
       try {
         const rows = parseRows(realGet(TRANSACTIONS_KEY))
@@ -145,19 +157,23 @@ export function PrivacyRuntime() {
           }
         }
 
+        failureCount = 0
         reportProgress(100, 'Drive 동기화 완료', 'done')
         window.dispatchEvent(new CustomEvent('flow-drive-sync-complete', { detail: pending }))
-        if (pending.upsertIds.length || pending.deletedIds.length) {
-          window.setTimeout(() => window.dispatchEvent(new Event('pageshow')), 180)
-        }
       } catch (error) {
+        failed = true
+        failureCount += 1
         mergePending(pending)
-        reportProgress(0, '동기화 대기 · 자동 재시도', 'error')
-        scheduleFlush(2500)
+        const message = error instanceof Error ? error.message : '원인을 확인할 수 없는 오류'
+        const delay = retryDelay(failureCount)
+        reportProgress(0, `동기화 대기 · ${message} · ${Math.round(delay / 1000)}초 후 재시도`, 'error')
+        scheduleFlush(delay)
       } finally {
         flushing = false
-        const queued = readPending()
-        if (queued.upsertIds.length || queued.deletedIds.length || queued.config) scheduleFlush(500)
+        if (!failed) {
+          const queued = readPending()
+          if (queued.upsertIds.length || queued.deletedIds.length || queued.config) scheduleFlush(250)
+        }
       }
     }
 
@@ -174,7 +190,7 @@ export function PrivacyRuntime() {
       const deletedIds = previous.filter((row) => !nextById.has(row.id)).map((row) => row.id)
       if (!upsertIds.length && !deletedIds.length) return
       mergePending({ upsertIds, deletedIds })
-      reportProgress(12, '기기에 저장됨')
+      reportProgress(12, '기기에 저장됨 · Drive 동기화 대기')
       scheduleFlush()
     }
 
@@ -183,13 +199,11 @@ export function PrivacyRuntime() {
       if (configTimer !== undefined) window.clearTimeout(configTimer)
       configTimer = window.setTimeout(() => {
         mergePending({ config: true })
-        reportProgress(12, '기기에 저장됨')
+        reportProgress(12, '기기에 저장됨 · Drive 동기화 대기')
         scheduleFlush(120)
       }, 700)
     }
 
-    // Local-first: finance values are persisted normally on-device. This
-    // observer only builds a durable background Drive sync queue.
     Storage.prototype.getItem = function (key: string) {
       return originalGetItem.call(this, key)
     }
@@ -237,7 +251,10 @@ export function PrivacyRuntime() {
       suspendForRemoteLoad()
       window.setTimeout(() => scheduleFlush(0), 1400)
     }
-    const onOnline = () => scheduleFlush(0)
+    const onOnline = () => {
+      failureCount = 0
+      scheduleFlush(0)
+    }
 
     document.addEventListener('click', onClickCapture, true)
     document.addEventListener('visibilitychange', onVisible)
@@ -246,8 +263,8 @@ export function PrivacyRuntime() {
     window.addEventListener('flow-explicit-transaction-write', onExplicitTransactionWrite)
 
     const retryTimer = window.setInterval(() => {
-      if (!suspended() && !explicitTransactionWrite()) scheduleFlush(0)
-    }, 15000)
+      if (!suspended() && !explicitTransactionWrite() && !flushing && flushTimer === undefined) scheduleFlush(0)
+    }, 30000)
     scheduleFlush(1200)
 
     return () => {
