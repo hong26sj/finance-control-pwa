@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { CATEGORIES, Transaction, won } from '@/lib/finance'
-import { DEFAULT_APPS_SCRIPT_URL, deleteDriveTransactions, deleteTransactionMerchant, getDriveTransactionDetails, patchDriveTransaction, saveMerchantRule } from '@/lib/drive-api'
+import { DEFAULT_APPS_SCRIPT_URL, getDriveTransactionDetails } from '@/lib/drive-api'
 
 const TRANSACTIONS_KEY = 'flow-preview-transactions'
 
@@ -44,8 +44,6 @@ function resolveBudgetRow(target: HTMLElement, rows: Transaction[]) {
   const id = item.dataset.transactionId
   return id ? rows.find((row) => row.id === id) || null : null
 }
-
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 export function TransactionCategoryEditor() {
   const [editing, setEditing] = useState<EditorState | null>(null)
@@ -135,15 +133,13 @@ export function TransactionCategoryEditor() {
     setSaveStage('')
   }
 
-  const save = async () => {
+  const save = () => {
     if (!row || !draft || saving) return
     if (!draft.merchant.trim()) { setError('가맹점명을 입력하세요.'); return }
     if (!draft.amount || draft.amount <= 0) { setError('금액을 확인하세요.'); return }
     const token = localStorage.getItem('flow-drive-token') || ''
-    const endpoint = localStorage.getItem('flow-drive-endpoint') || DEFAULT_APPS_SCRIPT_URL
     if (!token) { setError('Drive 인증이 필요합니다.'); return }
 
-    const previous = { ...row }
     const next: Transaction = {
       ...draft,
       id: row.id,
@@ -151,85 +147,55 @@ export function TransactionCategoryEditor() {
       fixed: kind === 'fixed',
       merchantCategoryAmbiguous: false,
     }
-    const merchantChanged = previous.merchant !== next.merchant || previous.merchantHash !== next.merchantHash
-    const categoryChanged = previous.category !== next.category
-    const writeDetails = (previous.time || '') !== (next.time || '') || (previous.source || '') !== (next.source || '') || (previous.memo || '') !== (next.memo || '') || previous.cashAdvance !== next.cashAdvance
 
     setSaving(true)
     setError('')
-    setSaveProgress(10)
-    setSaveStage('변경사항 준비 중')
-
-    window.dispatchEvent(new Event('flow-explicit-transaction-write'))
-    const nextRows = readRows().map((item) => item.id === next.id ? next : item)
-    localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(nextRows))
-    window.dispatchEvent(new CustomEvent('flow-transactions-changed', { detail: { id: next.id, row: next } }))
-
-    await wait(40)
-    setSaveProgress(35)
-    setSaveStage('Drive 전송 중')
-
-    const timer = window.setInterval(() => {
-      setSaveProgress((current) => current >= 86 ? current : Math.min(86, current + (current < 60 ? 8 : 3)))
-    }, 160)
+    setSaveProgress(15)
+    setSaveStage('기기에 저장 중')
 
     try {
-      setSaveStage('거래내역 저장 중')
-      await patchDriveTransaction(endpoint, token, next, { writeVault: merchantChanged, writeDetails })
-      window.clearInterval(timer)
+      const rows = readRows()
+      const nextRows = rows.some((item) => item.id === next.id)
+        ? rows.map((item) => item.id === next.id ? next : item)
+        : [...rows, next]
+      localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(nextRows))
+      window.dispatchEvent(new CustomEvent('flow-transactions-changed', { detail: { id: next.id, row: next, localFirst: true } }))
       setSaveProgress(100)
-      setSaveStage('저장 완료')
+      setSaveStage('저장 완료 · Drive는 백그라운드 동기화')
 
-      if (categoryChanged && next.category !== '미분류' && !merchantChanged) {
-        void saveMerchantRule(endpoint, token, {
-          transactionId: next.id,
-          rawMerchant: next.merchant || undefined,
-          merchantHash: next.merchantHash,
-          category: next.category,
-        }).catch(() => undefined)
-      }
-
-      // FinanceApp keeps its own React transaction state. Once the Drive write has
-      // completed and the server lock has been released, trigger its existing
-      // pageshow refresh path so dashboard/inbox/calendar converge on the same row.
-      window.setTimeout(() => window.dispatchEvent(new Event('pageshow')), 120)
-
-      await wait(180)
-      setEditing(null)
-      setDraft(null)
+      // Do not make the user wait for Apps Script / Drive. PrivacyRuntime has
+      // already queued this localStorage diff durably and will sync it in the
+      // background, retrying automatically if the network or Drive is busy.
+      window.setTimeout(() => {
+        setEditing(null)
+        setDraft(null)
+        setSaving(false)
+        setSaveProgress(0)
+        setSaveStage('')
+      }, 120)
     } catch (e) {
-      window.clearInterval(timer)
-      window.dispatchEvent(new Event('flow-explicit-transaction-write'))
-      const rolledBackRows = readRows().map((item) => item.id === previous.id ? previous : item)
-      localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(rolledBackRows))
-      window.dispatchEvent(new CustomEvent('flow-transactions-changed', { detail: { id: previous.id, row: previous, rollback: true } }))
+      setSaving(false)
       setSaveProgress(0)
       setSaveStage('')
-      setError(e instanceof Error ? `저장에 실패했습니다. ${e.message}` : '저장에 실패했습니다.')
-    } finally {
-      setSaving(false)
+      setError(e instanceof Error ? `기기 저장에 실패했습니다. ${e.message}` : '기기 저장에 실패했습니다.')
     }
   }
 
-  const deleteRow = async () => {
-    if (!row || !draft) return
+  const deleteRow = () => {
+    if (!row || !draft || deleting) return
     if (!confirm(`${draft.date.slice(5).replace('-', '.')} · ${won(draft.amount)} 거래를 삭제할까요?`)) return
     const token = localStorage.getItem('flow-drive-token') || ''
-    const endpoint = localStorage.getItem('flow-drive-endpoint') || DEFAULT_APPS_SCRIPT_URL
     if (!token) { setError('Drive 인증이 필요합니다.'); return }
+
     setDeleting(true)
     setError('')
     try {
-      await deleteDriveTransactions(endpoint, token, [row.id])
-      await deleteTransactionMerchant(endpoint, token, row.id).catch(() => undefined)
-      window.dispatchEvent(new Event('flow-explicit-transaction-write'))
       localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(readRows().filter((item) => item.id !== row.id)))
-      window.dispatchEvent(new CustomEvent('flow-transactions-changed', { detail: { id: row.id, deleted: true } }))
-      window.setTimeout(() => window.dispatchEvent(new Event('pageshow')), 120)
+      window.dispatchEvent(new CustomEvent('flow-transactions-changed', { detail: { id: row.id, deleted: true, localFirst: true } }))
       setEditing(null)
       setDraft(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : '삭제에 실패했습니다.')
+      setError(e instanceof Error ? e.message : '기기 저장에 실패했습니다.')
     } finally {
       setDeleting(false)
     }
@@ -268,8 +234,8 @@ export function TransactionCategoryEditor() {
       </div>}
       {error && <p className="transaction-editor-error">{error}</p>}
       <div className="transaction-editor-actions">
-        <button className="transaction-editor-delete" type="button" disabled={saving || deleting} onClick={() => void deleteRow()}>{deleting ? '삭제 중…' : '삭제'}</button>
-        <button className="primary" type="button" disabled={saving || deleting} onClick={() => void save()}>{saving ? `저장 중 ${saveProgress}%` : '변경 저장'}</button>
+        <button className="transaction-editor-delete" type="button" disabled={saving || deleting} onClick={deleteRow}>{deleting ? '삭제 중…' : '삭제'}</button>
+        <button className="primary" type="button" disabled={saving || deleting} onClick={save}>{saving ? '기기에 저장 중…' : '변경 저장'}</button>
       </div>
     </section>
   </div>
