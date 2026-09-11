@@ -19,26 +19,54 @@ function doPost(e) {
   try {
     var body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     if (body.action === 'login') return json_(login_(body.password));
-    if (body.action === 'shortcut.transaction.import') return json_(importShortcutTransactionDirectV2_(body));
+    if (body.action === 'shortcut.transaction.import') {
+      var shortcutResult = importShortcutTransactionDirectV2_(body);
+      if (shortcutResult && shortcutResult.status === 'stored') refreshSyncStatusFromDrive_();
+      return json_(shortcutResult);
+    }
 
     var auth = authorizeRequest_(body.auth_token, body.token);
     if (!auth.ok) return json_(auth);
     if (body.action === 'auth.check') return json_({ ok: true, expires_at: auth.expires_at || null });
-    if (body.action === 'snapshot.save') return json_({ ok: true, snapshot: saveSnapshot_(body.snapshot || defaultSnapshot_()) });
+    if (body.action === 'sync.status') {
+      var sync = getSyncStatus_();
+      return json_({ ok: true, version: sync.version, updated_at: sync.updated_at });
+    }
+    if (body.action === 'snapshot.save') {
+      var savedSnapshot = saveSnapshot_(body.snapshot || defaultSnapshot_());
+      rememberSyncStatus_(savedSnapshot.version, savedSnapshot.updatedAt);
+      return json_({ ok: true, snapshot: savedSnapshot });
+    }
     if (body.action === 'snapshot.get') {
       ensureSnapshotMigrations_();
       // Initial app hydration only needs the main snapshot + merchant vault.
       // Time/source/memo/cashAdvance remain in the protected detail store and are
-      // fetched lazily when a transaction is opened for editing. This removes one
-      // full Drive file read from every app launch.
+      // fetched lazily when a transaction is opened for editing.
       var snapshot = readSnapshotForClient_();
+      rememberSyncStatus_(snapshot.version, snapshot.updatedAt);
       return json_({ ok: true, snapshot: snapshot });
     }
-    if (body.action === 'transaction.patchOne') return json_({ ok: true, result: patchServerTransaction_(body.item || {}, { writeVault: body.writeVault === true, writeDetails: body.writeDetails === true }) });
-    if (body.action === 'transaction.upsertMany') return json_({ ok: true, result: upsertServerTransactions_(body.items || []) });
-    if (body.action === 'transaction.deleteMany') return json_({ ok: true, result: deleteServerTransactions_(body.ids || []) });
+    if (body.action === 'transaction.patchOne') {
+      var patched = patchServerTransaction_(body.item || {}, { writeVault: body.writeVault === true, writeDetails: body.writeDetails === true });
+      rememberSyncResult_(patched);
+      return json_({ ok: true, result: patched });
+    }
+    if (body.action === 'transaction.upsertMany') {
+      var upserted = upsertServerTransactions_(body.items || []);
+      rememberSyncResult_(upserted);
+      return json_({ ok: true, result: upserted });
+    }
+    if (body.action === 'transaction.deleteMany') {
+      var deleted = deleteServerTransactions_(body.ids || []);
+      rememberSyncResult_(deleted);
+      return json_({ ok: true, result: deleted });
+    }
     if (body.action === 'transaction.details.get') return json_({ ok: true, items: getServerTransactionDetails_(body.ids || []) });
-    if (body.action === 'config.save') return json_({ ok: true, result: saveServerConfig_(body) });
+    if (body.action === 'config.save') {
+      var configResult = saveServerConfig_(body);
+      rememberSyncResult_(configResult);
+      return json_({ ok: true, result: configResult });
+    }
     if (body.action === 'shortcut.pending.get') return json_({ ok: true, items: getShortcutPending_() });
     if (body.action === 'shortcut.pending.ack') return json_({ ok: true, result: ackShortcutPending_(body.ids || []) });
     if (body.action === 'merchant.resolve') return json_({ ok: true, items: resolveMerchantRules_(body.merchants || []) });
