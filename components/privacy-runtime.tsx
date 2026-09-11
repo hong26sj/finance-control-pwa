@@ -156,7 +156,8 @@ export function PrivacyRuntime() {
         scheduleFlush(2500)
       } finally {
         flushing = false
-        if (readPending().upsertIds.length || readPending().deletedIds.length || readPending().config) scheduleFlush(500)
+        const queued = readPending()
+        if (queued.upsertIds.length || queued.deletedIds.length || queued.config) scheduleFlush(500)
       }
     }
 
@@ -187,8 +188,8 @@ export function PrivacyRuntime() {
       }, 700)
     }
 
-    // Local-first: finance values are now persisted normally on-device. We only
-    // observe writes to build a durable background Drive sync queue.
+    // Local-first: finance values are persisted normally on-device. This
+    // observer only builds a durable background Drive sync queue.
     Storage.prototype.getItem = function (key: string) {
       return originalGetItem.call(this, key)
     }
@@ -220,7 +221,7 @@ export function PrivacyRuntime() {
       originalRemoveItem.call(this, key)
     }
 
-    const suspendForRemoteLoad = () => { suspendUntil = Date.now() + 3000 }
+    const suspendForRemoteLoad = () => { suspendUntil = Date.now() + 1200 }
     const onExplicitTransactionWrite = () => { explicitTransactionWriteUntil = Date.now() + 5000 }
     const onClickCapture = (event: MouseEvent) => {
       const button = (event.target as HTMLElement | null)?.closest('button')
@@ -230,11 +231,11 @@ export function PrivacyRuntime() {
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return
       suspendForRemoteLoad()
-      window.setTimeout(() => scheduleFlush(0), 3200)
+      window.setTimeout(() => scheduleFlush(0), 1400)
     }
     const onPageShow = () => {
       suspendForRemoteLoad()
-      window.setTimeout(() => scheduleFlush(0), 3200)
+      window.setTimeout(() => scheduleFlush(0), 1400)
     }
     const onOnline = () => scheduleFlush(0)
 
